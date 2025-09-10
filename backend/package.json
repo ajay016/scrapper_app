@@ -1,0 +1,30 @@
+{
+    "name": "desktop",
+    "version": "1.0.0",
+    "description": "My Desktop App",
+    "main": "index.js",
+    "scripts": {
+        "start": "electron .",
+        "dist": "electron-builder --win",
+        "dist:portable": "electron-builder --win portable"
+    },
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "electron": "^38.0.0",
+        "electron-builder": "^26.0.12"
+    },
+    "build": {
+        "appId": "com.example.desktop",
+        "productName": "DesktopApp",
+        "win": {
+            "target": "nsis"
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "artifactName": "${productName} Setup ${version}.exe"
+        }
+    }
+}

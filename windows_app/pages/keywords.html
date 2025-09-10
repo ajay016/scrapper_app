@@ -1,0 +1,68 @@
+<!-- pages/keywords.html -->
+<div class="keywords-page py-4 px-3">
+    <h2 class="text-center">Search With Keywords</h2>
+
+    <!-- ADDED: Project and Folder selection -->
+    <div class="d-flex justify-content-center align-items-center mb-3">
+        <div class="w-50">
+            <div class="row">
+                <div class="col-md-6">
+                    <label class="form-label">Project</label>
+                    <select id="project-select" class="form-select">
+                        <option value="">Select Project</option>
+                    </select>
+                </div>
+                <!-- <div class="col-md-6">
+                    <label class="form-label">Folder</label>
+                    <select id="folder-select" class="form-select" disabled>
+                        <option value="">Select Folder</option>
+                    </select>
+                </div> -->
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex justify-content-center align-items-center">
+        <div class="search-keyword-div input-group w-50">
+            <input id="keyword-input" type="text" class="form-control" placeholder="Enter keyword...">
+            <input id="depth-input" type="number" class="form-control" value="0" min="0" placeholder="Depth">
+            <button id="search-keyword-btn" class="btn btn-primary">Search</button>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        
+        <!-- Results container -->
+        <div id="results-container"></div>
+    </div>
+</div>
+
+
+<!-- Slide-in Save Panel -->
+<div id="save-panel" class="save-panel">
+    <div class="save-panel-content">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5>Save Selected Items</h5>
+            <button id="close-save-panel" class="btn-close"></button>
+        </div>
+        
+        <div class="mb-3">
+            <label class="form-label">Select Project</label>
+            <select id="save-project-select" class="form-select">
+                <option value="">Select a Project</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Select Folder (Optional)</label>
+            <select id="save-folder-select" class="form-select" disabled>
+                <option value="">Select a Folder</option>
+            </select>
+        </div>
+
+        <button id="confirm-save-btn" class="btn btn-primary w-100">Save</button>
+    </div>
+</div>
+
+<!-- Overlay -->
+<div id="save-panel-overlay" class="save-panel-overlay"></div>

@@ -1,0 +1,39 @@
+{
+    "name": "scrapedeck",
+    "version": "1.0.0",
+    "description": "ScrapeDeck",
+    "main": "index.js",
+    "scripts": {
+        "start": "electron .",
+        "dist": "electron-builder --win",
+        "dist:portable": "electron-builder --win portable"
+    },
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "electron": "^38.0.0",
+        "electron-builder": "^26.0.12"
+    },
+    "build": {
+        "appId": "com.deepdiver.desktop",
+        "productName": "ScrapeDeck",
+        "executableName": "ScrapeDeck",
+        "copyright": "Copyright © 2025 ScrapeDeck",
+        "win": {
+            "target": [
+                "nsis",
+                "portable"
+            ],
+            "icon": "assets/scrapedeck.ico"
+        },
+        "mac": {
+            "icon": "assets/scrapedeck.icns"
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "artifactName": "${productName} Setup ${version}.exe"
+        }
+    }
+}
