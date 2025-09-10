@@ -81,3 +81,30 @@ def login_view(request):
     # For GET request
     redirect_uri = request.GET.get('redirect_uri', '')
     return render(request, 'parser/authentication.html', {'redirect_uri': redirect_uri})
+
+
+def logout_view(request):
+    if request.method == 'POST':
+        redirect_uri = request.POST.get('redirect_uri')
+
+        # Clear Django session (web session logout)
+        logout(request)
+
+        if redirect_uri:
+            # Logout from Electron app
+            return JsonResponse({
+                'success': True,
+                'message': 'Logout successful.',
+                'deep_link': f"{redirect_uri}?logout=true"
+            })
+        else:
+            # Logout from website
+            return JsonResponse({
+                'success': True,
+                'message': 'Logout successful.',
+                'redirect_to': reverse('home')
+            })
+    
+    # If GET request, just clear session and redirect to home
+    logout(request)
+    return redirect('home')

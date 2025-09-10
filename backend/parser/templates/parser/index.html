@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
     <head>
-        <title>Title</title>
+        <title>Modern Home</title>
         <!-- Required meta tags -->
         <meta charset="utf-8" />
         <meta
@@ -16,22 +16,314 @@
             integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN"
             crossorigin="anonymous"
         />
+        
+        <!-- Google Fonts -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+        
+        <style>
+            :root {
+                --primary: #FFB800;
+                --secondary: #FF8A00;
+                --accent: #FFE600;
+                --dark: #0A0A0A;
+                --darker: #050505;
+                --light: #F0F0F0;
+                --midnight: #121212;
+            }
+            
+            body {
+                font-family: 'Montserrat', sans-serif;
+                background: linear-gradient(135deg, var(--darker), var(--dark), var(--midnight));
+                color: var(--light);
+                min-height: 100vh;
+                margin: 0;
+                padding: 0;
+                background-attachment: fixed;
+            }
+            
+            .navbar {
+                background: rgba(18, 18, 18, 0.95);
+                backdrop-filter: blur(10px);
+                padding: 1rem 2rem;
+                box-shadow: 0 4px 30px rgba(255, 184, 0, 0.15);
+                border-bottom: 1px solid rgba(255, 184, 0, 0.1);
+            }
+            
+            .brand {
+                font-weight: 800;
+                font-size: 1.8rem;
+                color: var(--primary);
+                transition: all 0.3s ease;
+                text-shadow: 0 0 10px rgba(255, 184, 0, 0.3);
+            }
+            
+            .brand:hover {
+                transform: scale(1.05);
+                text-shadow: 0 0 15px rgba(255, 184, 0, 0.5);
+            }
+            
+            .nav-link {
+                color: var(--light);
+                font-weight: 600;
+                margin: 0 0.5rem;
+                padding: 0.5rem 1rem;
+                border-radius: 50px;
+                transition: all 0.3s ease;
+            }
+            
+            .nav-link:hover {
+                background: rgba(255, 184, 0, 0.1);
+                transform: translateY(-2px);
+            }
+            
+            .nav-link.login {
+                background: var(--primary);
+                color: var(--darker);
+                font-weight: 700;
+            }
+            
+            .nav-link.login:hover {
+                background: #ffcc33;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(255, 184, 0, 0.4);
+            }
+            
+            .nav-link.logout {
+                background: var(--secondary);
+                color: var(--light);
+                font-weight: 700;
+            }
+            
+            .nav-link.logout:hover {
+                background: #ff9933;
+                transform: translateY(-2px);
+                box-shadow: 0 4px 15px rgba(255, 138, 0, 0.4);
+            }
+            
+            .hero {
+                padding: 8rem 0 5rem;
+                text-align: center;
+            }
+            
+            .hero h1 {
+                font-weight: 800;
+                font-size: 4rem;
+                margin-bottom: 1.5rem;
+                color: var(--primary);
+                text-shadow: 0 0 20px rgba(255, 184, 0, 0.3);
+            }
+            
+            .hero p {
+                font-size: 1.5rem;
+                max-width: 700px;
+                margin: 0 auto 2rem;
+                opacity: 0.9;
+            }
+            
+            .pulse {
+                animation: pulse 2s infinite;
+            }
+            
+            @keyframes pulse {
+                0% { 
+                    transform: scale(1); 
+                    text-shadow: 0 0 20px rgba(255, 184, 0, 0.3);
+                }
+                50% { 
+                    transform: scale(1.05);
+                    text-shadow: 0 0 30px rgba(255, 184, 0, 0.6), 0 0 40px rgba(255, 184, 0, 0.4);
+                }
+                100% { 
+                    transform: scale(1);
+                    text-shadow: 0 0 20px rgba(255, 184, 0, 0.3);
+                }
+            }
+            
+            .features {
+                padding: 5rem 0;
+                background: rgba(18, 18, 18, 0.7);
+                backdrop-filter: blur(10px);
+                border-radius: 20px;
+                margin: 2rem;
+                border: 1px solid rgba(255, 184, 0, 0.15);
+            }
+            
+            .feature-card {
+                background: rgba(30, 30, 30, 0.7);
+                border-radius: 15px;
+                padding: 2rem;
+                height: 100%;
+                transition: all 0.3s ease;
+                border: 1px solid rgba(255, 184, 0, 0.1);
+            }
+            
+            .feature-card:hover {
+                transform: translateY(-10px);
+                box-shadow: 0 15px 35px rgba(255, 184, 0, 0.2);
+                background: rgba(40, 40, 40, 0.8);
+                border: 1px solid rgba(255, 184, 0, 0.3);
+            }
+            
+            .icon-wrapper {
+                width: 80px;
+                height: 80px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, var(--primary), var(--secondary));
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0 auto 1.5rem;
+                font-size: 2rem;
+                box-shadow: 0 0 20px rgba(255, 184, 0, 0.4);
+            }
+            
+            .feature-card h3 {
+                color: var(--primary);
+                font-weight: 600;
+            }
+            
+            .feature-card p {
+                opacity: 0.9;
+            }
+            
+            footer {
+                background: var(--darker);
+                padding: 2rem 0;
+                text-align: center;
+                margin-top: 5rem;
+                border-top: 1px solid rgba(255, 184, 0, 0.1);
+            }
+            
+            /* Glow effects */
+            .glow {
+                position: absolute;
+                width: 300px;
+                height: 300px;
+                border-radius: 50%;
+                opacity: 0.1;
+                filter: blur(40px);
+                z-index: -1;
+            }
+            
+            .glow-1 {
+                top: 20%;
+                left: 10%;
+                background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+            }
+            
+            .glow-2 {
+                bottom: 20%;
+                right: 10%;
+                background: radial-gradient(circle, var(--secondary) 0%, transparent 70%);
+            }
+            
+            /* Responsive adjustments */
+            @media (max-width: 768px) {
+                .hero h1 {
+                    font-size: 2.5rem;
+                }
+                
+                .hero p {
+                    font-size: 1.2rem;
+                }
+                
+                .features {
+                    margin: 1rem;
+                }
+                
+                .glow {
+                    display: none;
+                }
+            }
+        </style>
     </head>
 
     <body>
+        <!-- Background glow effects -->
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+        
         <header>
-            <!-- place navbar here -->
+            <nav class="navbar navbar-expand-lg navbar-dark">
+                <div class="container">
+                    <a class="navbar-brand brand" href="#">MODERN</a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse" id="navbarNav">
+                        <ul class="navbar-nav ms-auto">
+                            <li class="nav-item">
+                                <a class="nav-link active" href="#">Home</a>
+                            </li>
+                            {% if request.user.is_authenticated %}
+                            <li class="nav-item">
+                                <span class="nav-link">{{ request.user.username }}</span>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link logout" href="{% url 'logout' %}">Logout</a>
+                            </li>
+                            {% else %}
+                            <li class="nav-item">
+                                <a class="nav-link login" href="{% url 'login_user' %}">Login</a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                </div>
+            </nav>
         </header>
+        
         <main>
-            {% if request.user.is_authenticated %}
-                {{ request.user.username }} | <a href="#">Logout</a>
-            {% else %}
-                <a href="#">Login</a> | <a href="#">Signup</a>
-            {% endif %}
+            <section class="hero">
+                <div class="container">
+                    <h1 class="pulse">WELCOME TO MODERN DESIGN</h1>
+                    <p>Experience the vibrant colors and sleek interface of this modern homepage template</p>
+                </div>
+            </section>
+            
+            <section class="features">
+                <div class="container">
+                    <div class="row">
+                        <div class="col-md-4 mb-4">
+                            <div class="feature-card">
+                                <div class="icon-wrapper">
+                                    <i>⚡</i>
+                                </div>
+                                <h3>Fast Performance</h3>
+                                <p>Optimized for speed and efficiency with minimal loading times.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <div class="feature-card">
+                                <div class="icon-wrapper">
+                                    <i>🎨</i>
+                                </div>
+                                <h3>Vibrant Design</h3>
+                                <p>Modern color scheme with gradient accents and smooth animations.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-4">
+                            <div class="feature-card">
+                                <div class="icon-wrapper">
+                                    <i>💻</i>
+                                </div>
+                                <h3>Fully Responsive</h3>
+                                <p>Looks great on all devices from mobile to desktop.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
+        
         <footer>
-            <!-- place footer here -->
+            <div class="container">
+                <p>© 2025 EI Studio. All rights reserved.</p>
+            </div>
         </footer>
+
         <!-- Bootstrap JavaScript Libraries -->
         <script
             src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
