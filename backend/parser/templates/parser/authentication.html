@@ -7,41 +7,413 @@
     <title>Vibrant Login & Signup</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="{% static 'parser/css/style.css' %}">
+    <style>
+        :root {
+            --primary-bg: #0a0a0a;
+            --secondary-bg: #1a1a1a;
+            --accent-yellow: #FFC107;
+            --accent-orange: #FF9800;
+            --text-primary: #FFFFFF;
+            --text-secondary: #AAAAAA;
+            --error-color: #F44336;
+            --success-color: #4CAF50;
+            --transition-speed: 0.3s;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: var(--primary-bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        
+        .auth-modern-container {
+            display: flex;
+            width: 100%;
+            max-width: 1100px;
+            min-height: 650px;
+            background-color: var(--secondary-bg);
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+            animation: fadeIn 0.8s ease-out;
+            position: relative;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .auth-modern-left {
+            flex: 1;
+            background: linear-gradient(135deg, var(--accent-yellow), var(--accent-orange));
+            color: #000;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .auth-modern-left::before {
+            content: '';
+            position: absolute;
+            top: -70px;
+            right: -70px;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .auth-modern-left::after {
+            content: '';
+            position: absolute;
+            bottom: -80px;
+            left: -80px;
+            width: 250px;
+            height: 250px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .auth-modern-logo {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+            z-index: 1;
+        }
+        
+        .auth-modern-logo-icon {
+            width: 50px;
+            height: 50px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 15px;
+            color: var(--accent-yellow);
+            font-size: 20px;
+        }
+        
+        .auth-modern-logo-text {
+            font-size: 24px;
+            font-weight: 700;
+            color: #000;
+        }
+        
+        .auth-modern-left h2 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            z-index: 1;
+        }
+        
+        .auth-modern-left p {
+            margin-bottom: 30px;
+            font-size: 16px;
+            line-height: 1.6;
+            z-index: 1;
+        }
+        
+        .auth-modern-feature-list {
+            list-style: none;
+            z-index: 1;
+        }
+        
+        .auth-modern-feature-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            transition: transform var(--transition-speed);
+        }
+        
+        .auth-modern-feature-item:hover {
+            transform: translateX(10px);
+        }
+        
+        .auth-modern-feature-icon {
+            width: 36px;
+            height: 36px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 15px;
+            color: var(--accent-yellow);
+            font-size: 14px;
+        }
+        
+        .auth-modern-right {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .auth-modern-tabs {
+            display: flex;
+            margin-bottom: 30px;
+            border-bottom: 1px solid #333;
+        }
+        
+        .auth-modern-tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 18px;
+            color: var(--text-secondary);
+            transition: all var(--transition-speed);
+            position: relative;
+        }
+        
+        .auth-modern-tab.active {
+            color: var(--accent-yellow);
+        }
+        
+        .auth-modern-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: var(--accent-yellow);
+            border-radius: 3px 3px 0 0;
+        }
+        
+        .auth-modern-form {
+            display: none;
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .auth-modern-form.active {
+            display: block;
+        }
+        
+        .auth-modern-form-group {
+            margin-bottom: 20px;
+            position: relative;
+        }
+        
+        .auth-modern-form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .auth-modern-form-input {
+            width: 100%;
+            padding: 15px;
+            background-color: #2a2a2a;
+            border: 2px solid #333;
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 16px;
+            transition: all var(--transition-speed);
+        }
+        
+        .auth-modern-form-input:focus {
+            outline: none;
+            border-color: var(--accent-yellow);
+            box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.2);
+        }
+        
+        .auth-modern-form-input.error {
+            border-color: var(--error-color);
+        }
+        
+        .auth-modern-form-error {
+            color: var(--error-color);
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+        
+        .auth-modern-form-row {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .auth-modern-form-row .auth-modern-form-group {
+            flex: 1;
+        }
+        
+        .auth-modern-form-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(to right, var(--accent-yellow), var(--accent-orange));
+            border: none;
+            border-radius: 10px;
+            color: #000;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-speed);
+            margin-top: 10px;
+        }
+        
+        .auth-modern-form-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 193, 7, 0.4);
+        }
+        
+        .auth-modern-divider {
+            display: flex;
+            align-items: center;
+            margin: 25px 0;
+        }
+        
+        .auth-modern-divider-line {
+            flex: 1;
+            height: 1px;
+            background-color: #333;
+        }
+        
+        .auth-modern-divider-text {
+            padding: 0 15px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .auth-modern-oauth-btn {
+            width: 100%;
+            padding: 12px;
+            background-color: #2a2a2a;
+            border: 2px solid #333;
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all var(--transition-speed);
+        }
+        
+        .auth-modern-oauth-btn:hover {
+            border-color: var(--accent-yellow);
+            transform: translateY(-2px);
+        }
+        
+        .auth-modern-oauth-icon {
+            margin-right: 10px;
+            color: var(--accent-yellow);
+        }
+        
+        .auth-optional {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        
+        .error-success-div, .error-success-div-signup {
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0;
+            font-size: 14px;
+            opacity: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        
+        .error-success-div.show, .error-success-div-signup.show {
+            opacity: 1;
+            max-height: 100px;
+        }
+        
+        .error-message {
+            background-color: rgba(244, 67, 54, 0.1);
+            border-left: 4px solid var(--error-color);
+            color: var(--error-color);
+        }
+        
+        .success-message {
+            background-color: rgba(76, 175, 80, 0.1);
+            border-left: 4px solid var(--success-color);
+            color: var(--success-color);
+        }
+        
+        @media (max-width: 900px) {
+            .auth-modern-container {
+                flex-direction: column;
+                max-width: 500px;
+            }
+            
+            .auth-modern-left {
+                padding: 30px;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .auth-modern-form-row {
+                flex-direction: column;
+                gap: 0;
+            }
+            
+            .auth-modern-tabs {
+                justify-content: center;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div class="auth-container">
-        <div class="auth-left">
-            <div class="auth-logo">
-                <div class="auth-logo-icon">
+    <div class="auth-modern-container">
+        <div class="auth-modern-left">
+            <div class="auth-modern-logo">
+                <div class="auth-modern-logo-icon">
                     <i class="fas fa-lock"></i>
                 </div>
-                <div class="auth-logo-text">SecureAuth</div>
+                <div class="auth-modern-logo-text">SecureAuth</div>
             </div>
             
             <h2>Welcome to our platform</h2>
             <p>Join our community and enjoy the best services we offer</p>
             
-            <ul class="auth-feature-list">
-                <li class="auth-feature-item">
-                    <div class="auth-feature-icon">
+            <ul class="auth-modern-feature-list">
+                <li class="auth-modern-feature-item">
+                    <div class="auth-modern-feature-icon">
                         <i class="fas fa-shield-alt"></i>
                     </div>
                     Advanced security features
                 </li>
-                <li class="auth-feature-item">
-                    <div class="auth-feature-icon">
+                <li class="auth-modern-feature-item">
+                    <div class="auth-modern-feature-icon">
                         <i class="fas fa-bolt"></i>
                     </div>
                     Fast and reliable service
                 </li>
-                <li class="auth-feature-item">
-                    <div class="auth-feature-icon">
+                <li class="auth-modern-feature-item">
+                    <div class="auth-modern-feature-icon">
                         <i class="fas fa-users"></i>
                     </div>
                     Connect with other users
                 </li>
-                <li class="auth-feature-item">
-                    <div class="auth-feature-icon">
+                <li class="auth-modern-feature-item">
+                    <div class="auth-modern-feature-icon">
                         <i class="fas fa-sync"></i>
                     </div>
                     Sync across all your devices
@@ -49,99 +421,99 @@
             </ul>
         </div>
         
-        <div class="auth-right">
-            <div class="auth-tabs">
-                <div class="auth-tab active" data-tab="login">Login</div>
-                <div class="auth-tab" data-tab="signup">Sign Up</div>
+        <div class="auth-modern-right">
+            <div class="auth-modern-tabs">
+                <div class="auth-modern-tab active" data-tab="login">Login</div>
+                <div class="auth-modern-tab" data-tab="signup">Sign Up</div>
             </div>
             
-            <form class="auth-form active" id="auth-login-form" action="{% url 'login_user' %}">
+            <form class="auth-modern-form active" id="auth-login-form" action="{% url 'login_user' %}">
                 {% csrf_token %}
                 {% if redirect_uri %}
                     <input type="hidden" name="redirect_uri" value="{{ redirect_uri }}">
                 {% endif %}
-                <div class="auth-form-group">
-                    <label for="auth-login-email" class="auth-form-label">Email</label>
-                    <input type="email" name="email" id="auth-login-email" class="auth-form-input" required>
-                    <div class="auth-form-error" id="auth-login-email-error">Please enter a valid email address</div>
+                <div class="auth-modern-form-group">
+                    <label for="auth-login-email" class="auth-modern-form-label">Email</label>
+                    <input type="email" name="email" id="auth-login-email" class="auth-modern-form-input" required>
+                    <div class="auth-modern-form-error" id="auth-login-email-error">Please enter a valid email address</div>
                 </div>
                 
-                <div class="auth-form-group">
-                    <label for="auth-login-password" class="auth-form-label">Password</label>
-                    <input type="password" name="password" id="auth-login-password" class="auth-form-input" required>
-                    <div class="auth-form-error" id="auth-login-password-error">Please enter your password</div>
+                <div class="auth-modern-form-group">
+                    <label for="auth-login-password" class="auth-modern-form-label">Password</label>
+                    <input type="password" name="password" id="auth-login-password" class="auth-modern-form-input" required>
+                    <div class="auth-modern-form-error" id="auth-login-password-error">Please enter your password</div>
                 </div>
 
                 <div style="margin-bottom: 10px;">
                     <div class="error-success-div py-6"></div>
                 </div>
                 
-                <button type="submit" class="auth-form-btn">Login</button>
+                <button type="submit" class="auth-modern-form-btn">Login</button>
                 
-                <div class="auth-divider">
-                    <div class="auth-divider-line"></div>
-                    <div class="auth-divider-text">or continue with</div>
-                    <div class="auth-divider-line"></div>
+                <div class="auth-modern-divider">
+                    <div class="auth-modern-divider-line"></div>
+                    <div class="auth-modern-divider-text">or continue with</div>
+                    <div class="auth-modern-divider-line"></div>
                 </div>
                 
-                <button type="button" class="auth-oauth-btn" id="auth-google-login">
-                    <i class="fab fa-google auth-oauth-icon"></i>
+                <button type="button" class="auth-modern-oauth-btn" id="auth-google-login">
+                    <i class="fab fa-google auth-modern-oauth-icon"></i>
                     Google
                 </button>
             </form>
             
-            <form class="auth-form" id="auth-signup-form">
-                <div class="auth-form-row">
-                    <div class="auth-form-group">
-                        <label for="auth-signup-firstname" class="auth-form-label">First Name</label>
-                        <input type="text" id="auth-signup-firstname" class="auth-form-input" required>
-                        <div class="auth-form-error" id="auth-signup-firstname-error">Please enter your first name</div>
+            <form class="auth-modern-form" id="auth-signup-form">
+                <div class="auth-modern-form-row">
+                    <div class="auth-modern-form-group">
+                        <label for="auth-signup-firstname" class="auth-modern-form-label">First Name</label>
+                        <input type="text" id="auth-signup-firstname" class="auth-modern-form-input" required>
+                        <div class="auth-modern-form-error" id="auth-signup-firstname-error">Please enter your first name</div>
                     </div>
                     
-                    <div class="auth-form-group">
-                        <label for="auth-signup-lastname" class="auth-form-label">Last Name <span class="auth-optional">(optional)</span></label>
-                        <input type="text" id="auth-signup-lastname" class="auth-form-input">
+                    <div class="auth-modern-form-group">
+                        <label for="auth-signup-lastname" class="auth-modern-form-label">Last Name <span class="auth-optional">(optional)</span></label>
+                        <input type="text" id="auth-signup-lastname" class="auth-modern-form-input">
                     </div>
                 </div>
                 
-                <div class="auth-form-group">
-                    <label for="auth-signup-email" class="auth-form-label">Email</label>
-                    <input type="email" id="auth-signup-email" class="auth-form-input" required>
-                    <div class="auth-form-error" id="auth-signup-email-error">Please enter a valid email address</div>
+                <div class="auth-modern-form-group">
+                    <label for="auth-signup-email" class="auth-modern-form-label">Email</label>
+                    <input type="email" id="auth-signup-email" class="auth-modern-form-input" required>
+                    <div class="auth-modern-form-error" id="auth-signup-email-error">Please enter a valid email address</div>
                 </div>
                 
-                <div class="auth-form-group">
-                    <label for="auth-signup-phone" class="auth-form-label">Phone</label>
-                    <input type="tel" id="auth-signup-phone" class="auth-form-input" required>
-                    <div class="auth-form-error" id="auth-signup-phone-error">Please enter a valid phone number</div>
+                <div class="auth-modern-form-group">
+                    <label for="auth-signup-phone" class="auth-modern-form-label">Phone</label>
+                    <input type="tel" id="auth-signup-phone" class="auth-modern-form-input" required>
+                    <div class="auth-modern-form-error" id="auth-signup-phone-error">Please enter a valid phone number</div>
                 </div>
                 
-                <div class="auth-form-row">
-                    <div class="auth-form-group">
-                        <label for="auth-signup-password" class="auth-form-label">Password</label>
-                        <input type="password" id="auth-signup-password" class="auth-form-input" required>
-                        <div class="auth-form-error" id="auth-signup-password-error">Password must be at least 8 characters</div>
+                <div class="auth-modern-form-row">
+                    <div class="auth-modern-form-group">
+                        <label for="auth-signup-password" class="auth-modern-form-label">Password</label>
+                        <input type="password" id="auth-signup-password" class="auth-modern-form-input" required>
+                        <div class="auth-modern-form-error" id="auth-signup-password-error">Password must be at least 8 characters</div>
                     </div>
                     
-                    <div class="auth-form-group">
-                        <label for="auth-signup-confirm" class="auth-form-label">Confirm Password</label>
-                        <input type="password" id="auth-signup-confirm" class="auth-form-input" required>
-                        <div class="auth-form-error" id="auth-signup-confirm-error">Passwords do not match</div>
+                    <div class="auth-modern-form-group">
+                        <label for="auth-signup-confirm" class="auth-modern-form-label">Confirm Password</label>
+                        <input type="password" id="auth-signup-confirm" class="auth-modern-form-input" required>
+                        <div class="auth-modern-form-error" id="auth-signup-confirm-error">Passwords do not match</div>
                     </div>
                 </div>
                 <div style="padding-left: 20px; padding-right: 20px; margin-bottom: 10px;">
                     <div class="error-success-div-signup p-6"></div>
                 </div>
-                <button type="submit" class="auth-form-btn">Create Account</button>
+                <button type="submit" class="auth-modern-form-btn">Create Account</button>
                 
-                <div class="auth-divider">
-                    <div class="auth-divider-line"></div>
-                    <div class="auth-divider-text">or sign up with</div>
-                    <div class="auth-divider-line"></div>
+                <div class="auth-modern-divider">
+                    <div class="auth-modern-divider-line"></div>
+                    <div class="auth-modern-divider-text">or sign up with</div>
+                    <div class="auth-modern-divider-line"></div>
                 </div>
                 
-                <button type="button" class="auth-oauth-btn" id="auth-google-signup">
-                    <i class="fab fa-google auth-oauth-icon"></i>
+                <button type="button" class="auth-modern-oauth-btn" id="auth-google-signup">
+                    <i class="fab fa-google auth-modern-oauth-icon"></i>
                     Google
                 </button>
             </form>
@@ -150,8 +522,8 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
     <script>
         // Tab switching functionality
-        const authTabs = document.querySelectorAll('.auth-tab');
-        const authForms = document.querySelectorAll('.auth-form');
+        const authTabs = document.querySelectorAll('.auth-modern-tab');
+        const authForms = document.querySelectorAll('.auth-modern-form');
         
         authTabs.forEach(tab => {
             tab.addEventListener('click', () => {
@@ -284,9 +656,8 @@
         document.getElementById('auth-google-signup').addEventListener('click', () => {
             alert('Google signup would be implemented here');
         });
-    </script>
-
-    <script>
+        
+        // Form submission handling
         function showMessage(type, message, divClass) {
             const div = $(divClass);
 
@@ -297,7 +668,7 @@
                 .addClass(type + "-message")
                 .text(message);
 
-                // small delay so the browser “sees” the reset
+                // small delay so the browser "sees" the reset
                 requestAnimationFrame(() => {
                 div.addClass("show");
                 });
@@ -345,7 +716,7 @@
                     console.log(data); // Log the response data
 
                     if (data.success) {
-                        showMessage('success', data.message, '.error-success-div-login');
+                        showMessage('success', data.message, '.error-success-div');
 
                         if (data.deep_link) {
                             // ✅ Electron login: show alert instead of redirect
@@ -360,7 +731,7 @@
                     }
                 })
                 .catch(error => {
-                    showMessage('error', 'An unexpected error occurred.');
+                    showMessage('error', 'An unexpected error occurred.', '.error-success-div');
                 });
             });
         });
