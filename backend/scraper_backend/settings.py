@@ -12,11 +12,17 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import environ
+import os
 
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+env = environ.Env()
+
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 
 # Quick-start development settings - unsuitable for production
@@ -148,8 +154,8 @@ REST_FRAMEWORK = {
     ),
 }
 
-GOOGLE_API_KEY = "AIzaSyDRIhQuYKTcMNMPfK8KeiyWl4AqCFj9JjA"
-GOOGLE_SEARCH_ENGINE_ID = "f3b5d4a2f899f4938"
+GOOGLE_API_KEY = env("GOOGLE_API_KEY")
+GOOGLE_SEARCH_ENGINE_ID = env("GOOGLE_SEARCH_ENGINE_ID")
 
 CORS_ALLOW_ALL_ORIGINS = True
 
