@@ -26,6 +26,9 @@
     --border-radius-lg: 12px;
     --transition: all 0.2s ease-in-out;
 
+    --checkbox-size: 18px;
+    --checkbox-border-radius: 4px;
+
     --checkbox-bg: #fff;
     --checkbox-border: #6c757d;
     --checkbox-checked-bg: #0d6efd;
@@ -325,8 +328,10 @@ body {
 }
 
 .nav-link.active {
-    background-color: var(--primary-color);
-    color: white;
+    background-color: #ffc107; /* Yellow/orange color */
+    color: #000; /* Dark text for better contrast */
+    box-shadow: 0 0 10px rgba(255, 193, 7, 0.5), /* Yellow glow */
+                0 4px 6px rgba(0, 0, 0, 0.1);    /* Subtle depth shadow */
 }
 
 .nav-link i {
@@ -891,6 +896,14 @@ body {
     display: block;
 }
 
+.search-section {
+    width: 100%;
+}
+
+.search-keyword-div {
+    width: 100%;
+}
+
 /* Dark theme support */
 [data-bs-theme="dark"] .save-panel {
     background: #2b3035;
@@ -937,6 +950,13 @@ body {
 @media (max-width: 1270px) {
     .search-keyword-div {
         width: 100% !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .search-keyword-div .form-control,
+    .search-keyword-div .btn {
+        margin-bottom: 0.5rem;
     }
 }
 
@@ -994,7 +1014,9 @@ body {
 
 .proj-actions {
     display: flex;
+    flex-direction: column;
     gap: 0.5rem;
+    align-items: center;
 }
 
 .proj-body {
@@ -1074,4 +1096,327 @@ body {
     text-align: center;
     color: var(--bs-danger);
 }
+
+
+/* Delete Checkbo style starts */
+.delete-checkbox {
+    width: 32px;
+    height: 32px;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--checkbox-border);
+    border-radius: var(--border-radius);
+    background: var(--checkbox-bg);
+    cursor: pointer;
+    position: relative;
+    transition: var(--transition);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.delete-checkbox::before {
+    content: "🗑️"; /* Delete icon always visible */
+    font-size: 16px;
+    transition: var(--transition);
+}
+
+.delete-checkbox:checked {
+    background: var(--danger-color);
+    border-color: var(--danger-color);
+}
+
+.delete-checkbox:checked::before {
+    color: white;
+}
+
+.delete-checkbox:focus {
+    outline: none;
+    border-color: var(--checkbox-focus-border);
+    box-shadow: 0 0 0 0.2rem var(--checkbox-focus-shadow);
+}
+
+#delete-selected-container {
+    display: none;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s ease-in-out;
+}
+
+#delete-selected-container.show {
+    display: flex !important;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Ensure edit button has same size */
+.proj-actions .btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+/* Delete Checkbo style starts */
 /* Projects Page Styles ends*/
+
+
+
+/* file upload form styles start */
+.file-upload-section {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.file-input-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.file-input-wrapper .input-group {
+    width: 100%;
+}
+
+.file-input-wrapper .form-control {
+    padding: 0.5rem 0.75rem;
+    width: 100%;
+}
+
+.file-input-wrapper .btn {
+    min-width: 80px;
+    padding: 0.5rem 0.75rem;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.file-input-wrapper .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.file-input-wrapper .form-control:focus {
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    border-right: 1px solid #86b7fe;
+}
+
+/* Custom file input styling */
+.form-control[type="file"] {
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-surface);
+    border: 2px dashed var(--border-color);
+    transition: all 0.3s ease;
+    width: 100%;
+}
+
+.form-control[type="file"]:hover {
+    border-color: var(--primary-color);
+    background: rgba(13, 110, 253, 0.05);
+}
+
+.form-control[type="file"]::file-selector-button {
+    padding: 0.3rem 0.6rem;
+    margin-right: 0.5rem;
+    background: var(--light-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--dark-color);
+    transition: all 0.2s ease;
+    font-size: 0.8rem;
+}
+
+.form-control[type="file"]::file-selector-button:hover {
+    background: var(--border-color);
+}
+
+.filename-display {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.filename-text {
+    font-size: 0.8rem;
+    font-weight: 500;
+    flex: 1;
+    text-align: center;
+}
+
+.btn-remove-file {
+    font-size: 0.6rem;
+    padding: 0.2rem;
+    flex-shrink: 0;
+}
+
+/* Dark theme support */
+[data-bs-theme="dark"] .filename-display {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--border-color);
+}
+
+[data-bs-theme="dark"] .form-control[type="file"]::file-selector-button {
+    background: var(--bg-elevated);
+    border-color: var(--border-color);
+    color: var(--light-color);
+}
+
+[data-bs-theme="dark"] .form-control[type="file"]::file-selector-button:hover {
+    background: var(--border-color);
+}
+
+/* Success state when file is selected */
+.filename-display.has-file {
+    background: rgba(25, 135, 84, 0.1);
+    border-color: var(--success-color);
+}
+
+.filename-display.has-file .filename-text {
+    color: var(--success-color);
+    font-weight: 600;
+}
+
+/* Start button wrapper */
+.start-button-wrapper {
+    width: 100%;
+    margin-top: 1rem; /* Adds margin above the button */
+}
+
+/* Button styles */
+#start-parsing-btn {
+    background-color: #ffc107;
+    border-color: #ffc107;
+    color: #ffffff !important; /* Pure white text */
+    font-weight: 600;
+}
+
+#start-parsing-btn:hover {
+    background-color: #e0a800;
+    border-color: #d39e00;
+    color: #ffffff !important; /* Pure white on hover too */
+}
+
+/* Ensure icon is also white */
+#start-parsing-btn .bi-play-circle {
+    color: #ffffff !important;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .file-upload-section {
+        max-width: 100%;
+    }
+    
+    .file-input-wrapper .input-group {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .file-input-wrapper .form-control {
+        border-right: 1px solid var(--border-color);
+        border-top-right-radius: var(--border-radius);
+        border-bottom-right-radius: var(--border-radius);
+        border-bottom: none;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        padding: 0.4rem 0.6rem;
+        width: 100%;
+    }
+    
+    .file-input-wrapper .btn {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+        border-bottom-left-radius: var(--border-radius);
+        border-bottom-right-radius: var(--border-radius);
+        min-width: 100%;
+        padding: 0.4rem 0.6rem;
+        width: 100%;
+    }
+    
+    .form-control[type="file"] {
+        padding: 0.4rem 0.6rem;
+        width: 100%;
+    }
+    
+    .form-control[type="file"]::file-selector-button {
+        padding: 0.25rem 0.5rem;
+        margin-right: 0.4rem;
+        font-size: 0.75rem;
+    }
+    
+    .filename-display {
+        padding: 0.4rem 0.6rem;
+        width: 100%;
+    }
+    
+    .filename-text {
+        font-size: 0.75rem;
+    }
+}
+
+/* Loading animation for the button */
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Ensure full width for all containers */
+.file-upload-section .card,
+.file-upload-section .card-body,
+.file-upload-section .row,
+.file-upload-section .col-12 {
+    width: 100%;
+}
+
+.file-upload-section .file-input-wrapper,
+.file-upload-section .input-group {
+    width: 100% !important;
+}
+/* file upload form styles end */
+
+
+
+
+
+/* Keyword pagination styles starts */
+.keyword-pagination-list .page-item .page-link {
+    background-color: #2d3748;
+    border-color: #4a5568;
+    color: #ecc94b;
+    transition: all 0.3s ease;
+    margin: 0 3px;
+    border-radius: 4px;
+}
+
+.keyword-pagination-list .page-item .page-link:hover {
+    background-color: #ecc94b;
+    color: #2d3748;
+    border-color: #ecc94b;
+    transform: translateY(-2px);
+}
+
+.keyword-pagination-list .page-item.active .page-link {
+    background-color: #ecc94b;
+    border-color: #ecc94b;
+    color: #2d3748;
+    font-weight: 600;
+}
+
+.keyword-pagination-list .page-item.disabled .page-link {
+    background-color: #4a5568;
+    border-color: #4a5568;
+    color: #a0aec0;
+}
+/* Keyword pagination styles ends */

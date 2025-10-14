@@ -1,6 +1,17 @@
 <div class="project-folders-page py-4 px-3">
     <div class="container">
         <h2 class="text-center mb-4">Project Folders</h2>
+
+        <!-- Add delete button container -->
+        <div class="d-flex justify-content-start mb-3" id="delete-selected-container">
+            <button class="btn btn-danger" id="delete-selected-btn">
+                <i class="bi bi-trash"></i> Delete Selected
+            </button>
+        </div>
+        
+        <!-- Add message container -->
+        <div id="delete-message-container" class="mt-2"></div>
+        
         <div class="project-folders-container mt-3">
             <!-- Folders will be injected here by project_folders.js -->
         </div>

@@ -22,6 +22,51 @@ require('./renderer/window-controls');
 require('./renderer/ui/logout');
 
 
+// ADD THIS FUNCTION near the top of your file (after imports):
+function setActiveNavItem(clickedItem) {
+    // Remove active class from all nav items
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+    });
+    
+    // Add active class to the clicked item
+    clickedItem.classList.add('active');
+}
+
+// MODIFY your existing event listeners to include the active state:
+document.querySelector('.projects-nav-item')
+    ?.addEventListener('click', function() {
+        loadPage(pageContent, 'projects');
+        setActiveNavItem(this.querySelector('.nav-link')); // ADD THIS LINE
+    });
+
+document.querySelector('.keywords-list-nav-item')
+    ?.addEventListener('click', function() {
+        loadPage(pageContent, 'keywords_list');
+        setActiveNavItem(this.querySelector('.nav-link')); // ADD THIS LINE
+    });
+
+// ADD similar event listeners for the other nav items:
+document.querySelectorAll('.nav-item:not(.projects-nav-item):not(.keywords-list-nav-item)').forEach(item => {
+    item.addEventListener('click', function() {
+        // You'll need to determine the page name based on the item
+        const pageName = determinePageName(this); // You need to implement this
+        loadPage(pageContent, pageName);
+        setActiveNavItem(this.querySelector('.nav-link'));
+    });
+});
+
+// ADD this helper function (implement your own logic for page names):
+function determinePageName(navItem) {
+    // Example implementation - adjust based on your structure
+    const text = navItem.querySelector('span').textContent.toLowerCase();
+    if (text === 'dashboard') return 'dashboard';
+    if (text === 'urls') return 'urls';
+    if (text === 'settings') return 'settings';
+    return text;
+}
+
+
 window.__pages = window.__pages || {}; // global registry for page modules
 
 async function loadPage(pageContent, pageName, params = {}) {
@@ -185,7 +230,6 @@ async function refreshToken() {
     }
 }
 // Login ends
-
 
 
 

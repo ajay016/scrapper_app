@@ -15,9 +15,12 @@ urlpatterns = [
     # User ends
     
     # keyword search and parse starts
-    path('search-keywords/', views.search_and_parse, name='search_and_parse'),
+    # path('search-keywords/', views.search_and_parse, name='search_and_parse'),
+    path('search-keywords/', views.search_and_parse_stream, name='search_and_parse'),
     path('save-keyword-results/', views.save_keyword_results, name='save_keyword_results'),
     path('keywords-list/', views.keywords_list, name='keywords_list'),
+    path("delete-folders/", views.delete_folders, name="delete_folders"),
+    path("bulk-keywords-search/", views.bulk_keywords_search, name="bulk_keywords_search"),
     # keyword search and parse ends
     
     # Projects starts
@@ -28,6 +31,7 @@ urlpatterns = [
     
     path('user-projects/', views.user_projects, name="user-projects"),
     path('project/<int:project_id>/folders/', views.project_folders, name='project_folders'),
+    path("delete-projects/", views.delete_projects, name="delete_projects"),
     # Projects ends
     
     # Project_folder starts

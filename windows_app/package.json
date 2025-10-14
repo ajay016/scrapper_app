@@ -20,11 +20,11 @@
         "executableName": "ScrapeDeck",
         "copyright": "Copyright © 2025 ScrapeDeck",
         "win": {
+            "icon": "assets/scrapedeck.ico",
             "target": [
-                "nsis",
-                "portable"
-            ],
-            "icon": "assets/scrapedeck.ico"
+                "portable",
+                "nsis"
+            ]
         },
         "mac": {
             "icon": "assets/scrapedeck.icns"

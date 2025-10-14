@@ -2,31 +2,94 @@
 <div class="keywords-page py-4 px-3">
     <h2 class="text-center">Search With Keywords</h2>
 
-    <!-- ADDED: Project and Folder selection -->
-    <div class="d-flex justify-content-center align-items-center mb-3">
-        <div class="w-50">
-            <div class="row">
-                <div class="col-md-6">
-                    <label class="form-label">Project</label>
-                    <select id="project-select" class="form-select">
-                        <option value="">Select Project</option>
-                    </select>
+    <div class="row">
+        <!-- ADDED: Project and Folder selection -->
+        <div class="col-12 col-md-6">
+            <div class="search-section">
+                <div class="mb-3">  <!-- Removed d-flex and justify-content-center -->
+                    <div class="row">  <!-- Removed w-50 -->
+                        <div class="col-12">  <!-- Changed from col-md-6 to col-12 -->
+                            <label class="form-label">Project</label>
+                            <select id="project-select" class="form-select">
+                                <option value="">Select Project</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-                <!-- <div class="col-md-6">
-                    <label class="form-label">Folder</label>
-                    <select id="folder-select" class="form-select" disabled>
-                        <option value="">Select Folder</option>
-                    </select>
-                </div> -->
+
+                <div class="search-keyword-div">  <!-- Removed d-flex, justify-content-center, and input-group -->
+                    <div class="row g-2">  <!-- Added row with gutter spacing -->
+                        <div class="col-12 col-md-6">
+                            <input id="keyword-input" type="text" class="form-control" placeholder="Enter keyword...">
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <input id="depth-input" type="number" class="form-control" value="0" min="0" placeholder="Depth">
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <button id="search-keyword-btn" class="btn btn-primary d-flex align-items-center justify-content-center w-100">
+                                Search
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class="d-flex justify-content-center align-items-center">
-        <div class="search-keyword-div input-group w-50">
-            <input id="keyword-input" type="text" class="form-control" placeholder="Enter keyword...">
-            <input id="depth-input" type="number" class="form-control" value="0" min="0" placeholder="Depth">
-            <button id="search-keyword-btn" class="btn btn-primary">Search</button>
+        <div class="col-12 col-md-6 mb-4 mb-md-0">
+            <div class="file-upload-section mb-4">
+                <div class="card border-0 shadow-sm">  <!-- Changed shadow-lg to shadow-sm -->
+                    <div class="card-body p-3">  <!-- Reduced padding from p-4 to p-3 -->
+                        <div class="text-center mb-3">  <!-- Reduced margin from mb-4 to mb-3 -->
+                            <i class="bi bi-cloud-upload fs-2 text-primary mb-2"></i>  <!-- Reduced from display-4 to fs-2 -->
+                            <h6 class="card-title fw-bold mb-1">Upload Keywords File</h6>  <!-- Changed from h5 to h6 -->
+                            <p class="text-muted small">Upload a text file with one keyword per line</p>  <!-- Added small class -->
+                        </div>
+                        
+                        <div>
+                            <div class="d-flex justify-content-center">
+                                <div class="col-12 col-md-8 col-lg-6">
+                                    <div class="file-input-wrapper">
+                                        <div class="input-group input-group-sm">  <!-- Added input-group-sm -->
+                                            <input type="file" class="form-control form-control-sm" id="keywords-file" accept=".txt">  <!-- form-control-sm -->
+                                        </div>
+
+                                        <div class="bulk-search-section">
+                                            <!-- File input and other elements -->
+                                            
+                                            <!-- ADD: Bulk limit input field -->
+                                            <div class="my-3">
+                                                <input type="number" id="bulk-limit-input" class="form-control" value="" min="0" 
+                                                    name="bulk_limit" placeholder="Enter limit for number of results">
+                                            </div>
+                                        </div>
+
+                                        <div class="start-button-wrapper mt-3">
+                                            <button class="btn btn-warning w-100 d-flex align-items-center justify-content-center" id="start-parsing-btn">
+                                                <i class="bi bi-play-circle me-2"></i>Start
+                                            </button>
+                                        </div>
+                                        
+                                        <div id="filename-display" class="filename-display mt-2 text-center small">  <!-- Added small class -->
+                                            <i class="bi bi-file-text me-1 text-muted"></i>  <!-- Reduced me-2 to me-1 -->
+                                            <span class="filename-text text-muted">No file selected</span>
+                                            <button type="button" class="btn-close btn-remove-file ms-1" style="display: none; font-size: 0.6rem;" aria-label="Remove file"></button>  <!-- Reduced ms-2 to ms-1, smaller font -->
+                                        </div>
+                                        
+                                        <div class="form-text text-center mt-1 small">  <!-- Reduced mt-2 to mt-1, added small -->
+                                            <i class="bi bi-info-circle me-1"></i>Only .txt files accepted
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="file-error-message" class="alert alert-danger mt-2 py-2 text-center small" style="display: none;" role="alert">  <!-- Reduced mt-3 to mt-2, added small, reduced padding -->
+                                        <i class="bi bi-exclamation-triangle me-1"></i>  <!-- Reduced me-2 to me-1 -->
+                                        <span class="error-text"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -34,6 +97,15 @@
         
         <!-- Results container -->
         <div id="results-container"></div>
+
+        <!-- ADD: Pagination container -->
+        <div id="keyword-pagination" class="keyword-pagination mt-4 d-none">
+            <nav aria-label="Search results pagination">
+                <ul class="pagination justify-content-center keyword-pagination-list">
+                    <!-- Pagination buttons will be inserted here -->
+                </ul>
+            </nav>
+        </div>
     </div>
 </div>
 

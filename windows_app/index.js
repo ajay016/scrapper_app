@@ -104,6 +104,7 @@ function createWindow() {
         win.setFullScreen(!win.isFullScreen());
     });
 
+
     // Remove this in production starts
     // --- Renderer errors forwarded to terminal ---
     ipcMain.on('renderer-error', (event, error) => {

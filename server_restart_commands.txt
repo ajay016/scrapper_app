@@ -1,0 +1,17 @@
+=================  Restarts   ======================
+sudo systemctl restart gunicorn
+sudo systemctl reload nginx
+
+
+
+
+Gunicorn logs:
+journalctl -u gunicorn -f
+
+Nginx logs:
+tail -f /var/log/nginx/error.log /var/log/nginx/access.log
+
+
+Status:
+sudo systemctl status gunicorn
+sudo nginx -t
