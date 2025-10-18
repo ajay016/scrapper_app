@@ -5,6 +5,7 @@ import logging
 import urllib.parse
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
+from .playwright_wrapper import playwright_browser
 import time
 import random
 from typing import List, Optional
@@ -69,11 +70,9 @@ def scrape_bing_results(query, num_results=100):
 # ---------- Scraper: DuckDuckGo (Playwright fallback) ----------
 def scrape_duckduckgo_results(query, num_results=50):
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        with playwright_browser(headless=False, args=["--disable-blink-features=AutomationControlled"]) as browser:
             page = browser.new_page(viewport={"width": 1280, "height": 800})
-            url = f"https://duckduckgo.com/?q={query}&ia=web"
-            page.goto(url, timeout=60000)
+            page.goto(f"https://duckduckgo.com/?q={query}&ia=web", timeout=60000)
             page.wait_for_selector("a[data-testid='result-title-a']", timeout=15000)
 
             collected = set()
@@ -92,19 +91,14 @@ def scrape_duckduckgo_results(query, num_results=50):
 
                 more_button = page.locator("#more-results")
                 if more_button.count() > 0:
-                    try:
-                        more_button.scroll_into_view_if_needed()
-                        more_button.click()
-                        page.wait_for_timeout(1000)
-                    except Exception:
-                        break
+                    more_button.scroll_into_view_if_needed()
+                    more_button.click()
+                    page.wait_for_timeout(1000)
                 else:
                     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                     page.wait_for_timeout(1000)
                     new_count = page.locator("a[data-testid='result-title-a']").count()
                     if new_count <= count:
                         break
-
-            browser.close()
     except Exception as e:
         print("DuckDuckGo scrape error:", e)
