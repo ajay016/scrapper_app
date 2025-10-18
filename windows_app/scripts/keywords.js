@@ -141,44 +141,61 @@
             const keywordCheckboxes = document.querySelectorAll('.keyword-checkbox');
             const resultCheckboxes = document.querySelectorAll('.result-checkbox');
             
-            // Mark All functionality
+            // Mark All functionality - mark ALL results across ALL pages
             if (markAllCheckbox) {
                 markAllCheckbox.onchange = (e) => {
                     const isChecked = e.target.checked;
+                    window.markAllActive = isChecked;
                     
-                    // Check/uncheck all keyword checkboxes and their results
+                    // Clear or fill selectedItems based on markAllActive
+                    if (isChecked) {
+                        // Add ALL results from ALL keywords to selectedItems
+                        Object.entries(window.bulkResults).forEach(([keyword, results]) => {
+                            results.forEach((result, index) => {
+                                const uniqueId = `${keyword}-${index}`;
+                                window.selectedItems.add(uniqueId);
+                            });
+                        });
+                    } else {
+                        // Clear all selections
+                        window.selectedItems.clear();
+                    }
+                    
+                    // Update all visible checkboxes on current page
                     keywordCheckboxes.forEach(checkbox => {
                         checkbox.checked = isChecked;
                     });
                     
                     resultCheckboxes.forEach(checkbox => {
                         checkbox.checked = isChecked;
-                        // Update global selection
-                        if (isChecked) {
-                            selectedItems.add(checkbox.dataset.id);
-                        } else {
-                            selectedItems.delete(checkbox.dataset.id);
-                        }
                     });
                 };
             }
             
-            // Keyword checkbox functionality (check all results for this keyword)
+            // Keyword checkbox functionality - mark ALL results for this keyword across ALL pages
             keywordCheckboxes.forEach(keywordCheckbox => {
                 keywordCheckbox.onchange = (e) => {
                     const isChecked = e.target.checked;
+                    const keyword = keywordCheckbox.dataset.keyword;
+                    
+                    // Update all results for this keyword in selectedItems
+                    if (window.bulkResults[keyword]) {
+                        window.bulkResults[keyword].forEach((result, index) => {
+                            const uniqueId = `${keyword}-${index}`;
+                            if (isChecked) {
+                                window.selectedItems.add(uniqueId);
+                            } else {
+                                window.selectedItems.delete(uniqueId);
+                            }
+                        });
+                    }
+                    
+                    // Update visible checkboxes for this keyword on current page
                     const keywordSection = keywordCheckbox.closest('.keyword-results-section');
                     const keywordResultCheckboxes = keywordSection.querySelectorAll('.result-checkbox');
                     
-                    // Check/uncheck all results for this keyword
                     keywordResultCheckboxes.forEach(checkbox => {
                         checkbox.checked = isChecked;
-                        // Update global selection
-                        if (isChecked) {
-                            selectedItems.add(checkbox.dataset.id);
-                        } else {
-                            selectedItems.delete(checkbox.dataset.id);
-                        }
                     });
                     
                     // Update Mark All checkbox state
@@ -191,11 +208,17 @@
                 checkbox.onchange = () => {
                     const itemId = checkbox.dataset.id;
                     
-                    // Update global selection
                     if (checkbox.checked) {
-                        selectedItems.add(itemId);
+                        window.selectedItems.add(itemId);
                     } else {
-                        selectedItems.delete(itemId);
+                        window.selectedItems.delete(itemId);
+                        // If unchecking any item, markAllActive should be false
+                        window.markAllActive = false;
+                        const markAllCheckbox = document.getElementById('mark-all-checkbox');
+                        if (markAllCheckbox) {
+                            markAllCheckbox.checked = false;
+                            markAllCheckbox.indeterminate = false;
+                        }
                     }
                     
                     // Update keyword checkbox state
@@ -204,37 +227,290 @@
                     // Update Mark All checkbox state
                     updateMarkAllState();
                 };
+                
+                // Set initial state based on selectedItems
+                checkbox.checked = window.selectedItems.has(checkbox.dataset.id);
             });
+            
+            // Set initial state for keyword checkboxes
+            keywordCheckboxes.forEach(keywordCheckbox => {
+                updateKeywordCheckboxState(keywordCheckbox);
+            });
+            
+            // Set initial state for mark all checkbox
+            updateMarkAllState();
         }
 
-        function updateKeywordCheckboxState(resultCheckbox) {
-            const keywordSection = resultCheckbox.closest('.keyword-results-section');
-            const keywordCheckbox = keywordSection.querySelector('.keyword-checkbox');
-            const keywordResultCheckboxes = keywordSection.querySelectorAll('.result-checkbox');
+        function updateKeywordCheckboxState(keywordCheckbox) {
+            const keyword = keywordCheckbox.dataset.keyword;
+            if (!window.bulkResults[keyword]) return;
             
-            const allChecked = Array.from(keywordResultCheckboxes).every(cb => cb.checked);
-            const someChecked = Array.from(keywordResultCheckboxes).some(cb => cb.checked);
+            const totalResultsForKeyword = window.bulkResults[keyword].length;
+            let selectedCountForKeyword = 0;
             
-            keywordCheckbox.checked = allChecked;
-            keywordCheckbox.indeterminate = someChecked && !allChecked;
+            // Count how many results for this keyword are selected
+            window.bulkResults[keyword].forEach((result, index) => {
+                const uniqueId = `${keyword}-${index}`;
+                if (window.selectedItems.has(uniqueId)) {
+                    selectedCountForKeyword++;
+                }
+            });
+            
+            const allSelected = selectedCountForKeyword === totalResultsForKeyword;
+            const someSelected = selectedCountForKeyword > 0 && selectedCountForKeyword < totalResultsForKeyword;
+            
+            keywordCheckbox.checked = allSelected;
+            keywordCheckbox.indeterminate = someSelected;
         }
 
         function updateMarkAllState() {
             const markAllCheckbox = document.getElementById('mark-all-checkbox');
-            const resultCheckboxes = document.querySelectorAll('.result-checkbox');
+            if (!markAllCheckbox) return;
             
-            const allChecked = Array.from(resultCheckboxes).every(cb => cb.checked);
-            const someChecked = Array.from(resultCheckboxes).some(cb => cb.checked);
+            // Calculate total results and selected results across ALL keywords
+            let totalResults = 0;
+            let selectedResults = 0;
             
-            if (markAllCheckbox) {
-                markAllCheckbox.checked = allChecked;
-                markAllCheckbox.indeterminate = someChecked && !allChecked;
-            }
+            Object.entries(window.bulkResults).forEach(([keyword, results]) => {
+                totalResults += results.length;
+                results.forEach((result, index) => {
+                    const uniqueId = `${keyword}-${index}`;
+                    if (window.selectedItems.has(uniqueId)) {
+                        selectedResults++;
+                    }
+                });
+            });
+            
+            const allSelected = totalResults > 0 && selectedResults === totalResults;
+            const someSelected = selectedResults > 0 && selectedResults < totalResults;
+            
+            markAllCheckbox.checked = allSelected;
+            markAllCheckbox.indeterminate = someSelected;
+            window.markAllActive = allSelected;
         }
         // checkbox for bulk keywords ends
 
+        function renderBulkResults(results, startIndex = 0) {
+            if (!results || results.length === 0) {
+                return '<p>No results.</p>';
+            }
+
+            let html = '';
+            results.forEach((result, index) => {
+                const uniqueId = result.uniqueId || `${result.keyword}-${result.originalIndex || index}`;
+                const isChecked = window.selectedItems.has(uniqueId) || window.markAllActive;
+                
+                html += `
+                    <div class="card card-stream my-2 p-2">
+                        <div class="form-check">
+                            <input class="form-check-input result-checkbox" type="checkbox" 
+                                data-url="${result.url}" data-title="${result.title || result.url}"
+                                data-id="${uniqueId}" data-has-children="${result.children && result.children.length > 0}"
+                                data-keyword="${result.keyword}"
+                                ${isChecked ? 'checked' : ''}>
+                            <label class="form-check-label">
+                                <a href="${result.url}" target="_blank" rel="noreferrer noopener">
+                                    ${result.title || result.url}
+                                </a>
+                            </label>
+                        </div>
+                    </div>
+                `;
+                
+                // Recursively render children if they exist
+                if (result.children && result.children.length > 0) {
+                    result.children.forEach((child, childIndex) => {
+                        const childUniqueId = `${uniqueId}-${childIndex}`;
+                        const childChecked = window.selectedItems.has(childUniqueId) || window.markAllActive;
+                        
+                        html += `
+                            <div class="card card-stream my-2 p-2" style="margin-left: 20px">
+                                <div class="form-check">
+                                    <input class="form-check-input result-checkbox" type="checkbox" 
+                                        data-url="${child.url}" data-title="${child.title || child.url}"
+                                        data-id="${childUniqueId}" data-has-children="false"
+                                        data-keyword="${result.keyword}"
+                                        ${childChecked ? 'checked' : ''}>
+                                    <label class="form-check-label">
+                                        <a href="${child.url}" target="_blank" rel="noreferrer noopener">
+                                            ${child.title || child.url}
+                                        </a>
+                                    </label>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+            });
+            
+            return html;
+        }
+
+        function renderBulkPagination(totalPages, currentPage) {
+            // Remove existing pagination if any
+            const existingPagination = document.getElementById('keyword-pagination');
+            if (existingPagination) {
+                existingPagination.remove();
+            }
+
+            // Create pagination container with your existing structure
+            const paginationContainer = document.createElement('div');
+            paginationContainer.id = 'keyword-pagination';
+            paginationContainer.className = 'pagination-container mt-3';
+            paginationContainer.innerHTML = `
+                <nav aria-label="Keyword results pagination">
+                    <ul class="pagination keyword-pagination-list justify-content-center"></ul>
+                </nav>
+            `;
+            
+            resultsContainer.appendChild(paginationContainer);
+
+            // Use your existing renderPagination function
+            renderPagination(totalPages, currentPage);
+
+            // Add event listeners to pagination buttons
+            const prevBtn = document.querySelector('.keyword-pagination-prev');
+            const nextBtn = document.querySelector('.keyword-pagination-next');
+            const pageBtns = document.querySelectorAll('.keyword-pagination-number');
+
+            if (prevBtn) {
+                prevBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const page = parseInt(e.target.dataset.page);
+                    if (page && page !== currentPage) {
+                        renderBulkPaginatedResults(page);
+                    }
+                });
+            }
+
+            if (nextBtn) {
+                nextBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const page = parseInt(e.target.dataset.page);
+                    if (page && page !== currentPage) {
+                        renderBulkPaginatedResults(page);
+                    }
+                });
+            }
+
+            pageBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const page = parseInt(e.target.dataset.page);
+                    if (page && page !== currentPage) {
+                        renderBulkPaginatedResults(page);
+                    }
+                });
+            });
+        }
+
+        // Render paginated results for bulk search
+        function renderBulkPaginatedResults(page = 1) {
+            const startIndex = (page - 1) * window.bulkItemsPerPage;
+            let allResults = [];
+            
+            // Flatten all results for pagination
+            Object.entries(window.bulkResults).forEach(([keyword, results]) => {
+                results.forEach((result, index) => {
+                    allResults.push({
+                        ...result,
+                        keyword: keyword,
+                        globalIndex: allResults.length,
+                        uniqueId: `${keyword}-${index}` // Add consistent unique ID
+                    });
+                });
+            });
+
+            const paginated = allResults.slice(startIndex, startIndex + window.bulkItemsPerPage);
+
+            // Build results HTML grouped by keyword
+            let resultsHtml = '<h5>Bulk Search Results</h5>';
+            const keywordGroups = {};
+            
+            paginated.forEach(result => {
+                if (!keywordGroups[result.keyword]) {
+                    keywordGroups[result.keyword] = [];
+                }
+                keywordGroups[result.keyword].push(result);
+            });
+
+            Object.entries(keywordGroups).forEach(([keyword, results]) => {
+                resultsHtml += `
+                    <div class="keyword-results-section mb-4">
+                        <div class="form-check mt-4">
+                            <input class="form-check-input keyword-checkbox" type="checkbox" 
+                                data-keyword="${keyword}">
+                            <label class="form-check-label h5 mb-0">
+                                Results for "${keyword}"
+                            </label>
+                            <span class="badge bg-secondary ms-2">${results.length} links</span>
+                        </div>
+                        <div class="keyword-results-content mt-2">
+                            ${renderBulkResults(results, startIndex)}
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsContainer.innerHTML = `
+                <div id="action-buttons-container" class="d-flex align-items-center mt-5 mb-3 ms-2" style="display: flex;">
+                    <div class="form-check me-5">
+                        <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
+                        <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
+                    </div>
+                    <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
+                    <div class="dropdown ms-2">
+                        <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-download"></i>
+                            Export
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item export-btn" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> Export as CSV</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="excel"><i class="bi bi-file-earmark-excel"></i> Export as Excel</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
+                        </ul>
+                    </div>
+                    <div id="links-counter" class="ms-3 px-2 py-1 bg-light border rounded small fw-bold">Links: ${allResults.length}</div>
+                </div>
+                <div id="save-message-container" class="mt-2"></div>
+                <div id="results-content">${resultsHtml || '<p>No results.</p>'}</div>
+            `;
+
+            // Add export button event listeners for bulk paginated view
+            setTimeout(() => {
+                const exportBtns = document.querySelectorAll('.export-btn');
+                exportBtns.forEach(btn => {
+                    btn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const format = this.getAttribute('data-format');
+                        console.log('Export button clicked in bulk paginated view:', format);
+                        exportResults(format);
+                    });
+                });
+            }, 100);
+
+            // Initialize bulk search checkboxes
+            initializeBulkSearchCheckboxes();
+
+            // Pagination UI
+            if (allResults.length > window.bulkItemsPerPage) {
+                const totalPages = Math.ceil(allResults.length / window.bulkItemsPerPage);
+                window.currentBulkPage = page;
+                renderBulkPagination(totalPages, page);
+            }
+        }
+
         // Also update the handleFileUpload function to reset on success
         async function uploadFileToBackend(file) {
+            // Remove existing pagination before starting new search
+            const existingPagination = document.getElementById('keyword-pagination');
+            if (existingPagination) {
+                existingPagination.remove();
+            }
+            
+            // Also clear any existing results container content
+            resultsContainer.innerHTML = '';
+
             const startButton = document.getElementById('start-parsing-btn');
             const originalText = startButton.innerHTML;
             
@@ -243,94 +519,515 @@
                 startButton.disabled = true;
                 startButton.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Processing...';
 
-                // ADD: Modern loading animation
+                // Clear previous results
                 resultsContainer.innerHTML = `
                     <div class="text-center">
                         <div class="spinner-border text-primary mb-2" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <p class="searching-pulse">Searching for All the keywords...</p>
+                        <p class="searching-pulse">Starting bulk search for all keywords...</p>
+                    </div>
+                    <div id="progress-container" class="mt-2">
+                        <div class="progress">
+                            <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                        </div>
+                    </div>
+                    <div id="results-tree-container" class="mt-3">
+                        <div id="results-tree"></div>
                     </div>
                 `;
+
+                const treeContainerWrapper = document.getElementById('results-tree-container');
+                const treeContainer = document.getElementById('results-tree');
+                const progressBar = document.getElementById('progress-bar');
+
+                // Set up container for scrolling
+                treeContainerWrapper.style.maxHeight = '500px';
+                treeContainerWrapper.style.overflowY = 'auto';
+
+                // Global state for bulk search
+                window.bulkResults = {}; // { keyword1: [results], keyword2: [results] }
+                window.selectedItems = new Set();
+                window.markAllActive = true;
+                window.currentBulkPage = 1;
+                window.bulkItemsPerPage = 10;
+
+                // Create action buttons
+                const actionButtonsContainer = document.createElement("div");
+                actionButtonsContainer.id = 'action-buttons-container';
+                actionButtonsContainer.className = 'd-flex align-items-center mt-5 mb-3 ms-2';
+                actionButtonsContainer.style.display = 'none';
+                actionButtonsContainer.innerHTML = `
+                    <div class="form-check me-5">
+                        <input class="form-check-input" type="checkbox" id="mark-all-checkbox" checked>
+                        <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
+                    </div>
+                    <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
+                    <div class="dropdown ms-2">
+                        <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-download"></i>
+                            Export
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item export-btn" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> Export as CSV</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="excel"><i class="bi bi-file-earmark-excel"></i> Export as Excel</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
+                        </ul>
+                    </div>
+                    <div id="links-counter" class="ms-3 px-2 py-1 bg-light border rounded small fw-bold">Links: 0</div>
+                `;
+
+                // Add export button event listeners for bulk search
+                setTimeout(() => {
+                    const exportBtns = actionButtonsContainer.querySelectorAll('.export-btn');
+                    exportBtns.forEach(btn => {
+                        btn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            const format = this.getAttribute('data-format');
+                            console.log('Export button clicked in bulk search:', format);
+                            exportResults(format);
+                        });
+                    });
+                }, 100);
+
+                treeContainerWrapper.parentNode.insertBefore(actionButtonsContainer, treeContainerWrapper);
+
+                // Create Stop button
+                let stopBtn = document.getElementById('stop-search-btn');
+                if (!stopBtn) {
+                    stopBtn = document.createElement('button');
+                    stopBtn.id = 'stop-search-btn';
+                    stopBtn.className = 'btn btn-danger btn-sm ms-2';
+                    stopBtn.textContent = 'Stop';
+                }
+                stopBtn.style.display = 'none';
 
                 const formData = new FormData();
                 formData.append('keywords_file', file);
 
-                const response = await fetch(`${API_BASE_URL}/api/bulk-keywords-search/`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${localStorage.getItem("accessToken")}`
-                    },
-                    body: formData
+                
+
+                // Auto-scroll setup
+                let autoScroll = true;
+                treeContainerWrapper.addEventListener('scroll', () => {
+                    const threshold = 50;
+                    const isAtBottom = treeContainerWrapper.scrollTop + treeContainerWrapper.clientHeight >= treeContainerWrapper.scrollHeight - threshold;
+                    autoScroll = isAtBottom;
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || 'Failed to upload file');
+                // Update links counter
+                function updateLinksCounter() {
+                    const totalLinks = Object.values(window.bulkResults).reduce((sum, results) => sum + results.length, 0);
+                    const linksCounter = document.getElementById('links-counter');
+                    if (linksCounter) {
+                        linksCounter.textContent = `Links: ${totalLinks}`;
+                    }
                 }
 
-                const result = await response.json();
-                
-                // Show success message
-                // Instead of alert, render results
-                resultsContainer.innerHTML = '';
+                // Render node for bulk search (similar to single search)
+                function renderBulkNode(n, parentContainer, level = 0, parentIndex = null, baseIndex = 0, keyword) {
+                    // ensure container exists
+                    if (!window.bulkResults) window.bulkResults = {};
+                    if (!window.bulkResults[keyword]) window.bulkResults[keyword] = [];
 
-                if (result.keywords && result.keywords.length > 0) {
-                    // Create a single action buttons container at the top
-                    resultsContainer.innerHTML = `
-                        <div class="d-flex align-items-center mt-5 mb-3 ms-2" id="action-buttons-container" style="display: flex;">
-                            <div class="form-check me-5">
-                                <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
-                                <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
-                            </div>
-                            <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
+                    // Prefer existing uniqueId if provided by processStreamData; otherwise assign one now
+                    let renderUniqueId;
+                    if (n && n.uniqueId) {
+                        renderUniqueId = n.uniqueId;
+                        // ensure it's present in bulkResults (avoid duplicates)
+                        const exists = window.bulkResults[keyword].some(r => r.uniqueId === renderUniqueId);
+                        if (!exists) {
+                            const resultIndex = window.bulkResults[keyword].length;
+                            const resultWithId = { ...n, keyword: keyword, originalIndex: resultIndex, uniqueId: renderUniqueId };
+                            window.bulkResults[keyword].push(resultWithId);
+                        }
+                    } else {
+                        const resultIndex = window.bulkResults[keyword].length;
+                        renderUniqueId = `${keyword}-${resultIndex}`;
+                        const resultWithId = { ...n, keyword: keyword, originalIndex: resultIndex, uniqueId: renderUniqueId };
+                        window.bulkResults[keyword].push(resultWithId);
+
+                        // If mark-all is active, mark this id as selected
+                        if (window.markAllActive) window.selectedItems.add(renderUniqueId);
+
+                        // Update keyword counter if visible
+                        try {
+                            const keywordSection = parentContainer ? parentContainer.parentNode : null;
+                            const keywordCounter = keywordSection ? keywordSection.querySelector('.keyword-counter') : null;
+                            if (keywordCounter) keywordCounter.textContent = `${window.bulkResults[keyword].length} links`;
+                            updateLinksCounter();
+                        } catch (e) { /* ignore UI update errors */ }
+                    }
+
+                    const cardDiv = document.createElement("div");
+                    cardDiv.className = "card card-stream my-2 p-2";
+                    cardDiv.style.marginLeft = `${level * 20}px`;
+
+                    const isChecked = window.selectedItems.has(renderUniqueId) || !!window.markAllActive;
+
+                    cardDiv.innerHTML = `
+                        <div class="form-check">
+                            <input class="form-check-input result-checkbox" type="checkbox" 
+                                data-url="${n.url || ''}" data-title="${(n.title || n.url) || ''}"
+                                data-id="${renderUniqueId}" data-has-children="${n.children && n.children.length > 0}"
+                                data-keyword="${keyword}"
+                                ${isChecked ? 'checked' : ''}>
+                            <label class="form-check-label">
+                                <a href="${n.url || '#'}" target="_blank" rel="noreferrer noopener">
+                                    ${n.title || n.url || 'no title'}
+                                </a>
+                            </label>
                         </div>
-                        <div id="save-message-container" class="mt-2"></div>
                     `;
-                    
-                    // Add each keyword's results
-                    result.keywords.forEach(keywordData => {
-                        const keywordDiv = document.createElement('div');
-                        keywordDiv.className = 'keyword-results-section';
-                        
-                        keywordDiv.innerHTML = `
-                                                    <div class="form-check mt-4">
-                                                        <input class="form-check-input keyword-checkbox" type="checkbox" 
-                                                            data-keyword="${keywordData.keyword.word}" data-keyword-id="${keywordData.keyword.id}">
-                                                        <label class="form-check-label h5 mb-0">
-                                                            Results for "${keywordData.keyword.word}"
-                                                        </label>
-                                                    </div>
-                                                    <div class="keyword-results-content">
-                                                        ${renderResults(keywordData.results || [], 0, null, 0) || '<p>No results.</p>'}
-                                                    </div>
-                                                `;
 
-                        resultsContainer.appendChild(keywordDiv);
-                    });
-                    
-                    // Initialize checkbox functionality for bulk search
-                    initializeBulkSearchCheckboxes();
-                } else {
-                    resultsContainer.innerHTML = `<p class="text-warning">No results found for uploaded keywords.</p>`;
+                    parentContainer.appendChild(cardDiv);
+
+                    const checkbox = cardDiv.querySelector(".result-checkbox");
+                    const id = checkbox.dataset.id;
+
+                    if (isChecked) window.selectedItems.add(id);
+
+                    checkbox.onchange = () => {
+                        // re-read id in case dataset changed
+                        const checkedId = checkbox.dataset.id;
+                        if (checkbox.checked) window.selectedItems.add(checkedId);
+                        else window.selectedItems.delete(checkedId);
+
+                        if (checkbox.dataset.hasChildren === "true") {
+                            const childCheckboxes = cardDiv.querySelectorAll('.result-checkbox');
+                            childCheckboxes.forEach(child => {
+                                child.checked = checkbox.checked;
+                                const childId = child.dataset.id;
+                                if (checkbox.checked) window.selectedItems.add(childId);
+                                else window.selectedItems.delete(childId);
+                            });
+                        }
+
+                        if (window.markAllActive && !checkbox.checked) {
+                            window.markAllActive = false;
+                            const markEl = document.getElementById('mark-all-checkbox');
+                            if (markEl) { markEl.checked = false; markEl.indeterminate = false; }
+                        }
+
+                        updateMarkAllCheckbox();
+                    };
+
+                    // Render children recursively; pass renderUniqueId as parentIndex to keep hierarchical context
+                    if (n.children && n.children.length > 0) {
+                        n.children.forEach(child => renderBulkNode(child, parentContainer, level + 1, renderUniqueId, 0, keyword));
+                    }
+
+                    // Auto-scroll
+                    if (autoScroll) {
+                        setTimeout(() => {
+                            treeContainerWrapper.scrollTop = treeContainerWrapper.scrollHeight;
+                        }, 10);
+                    }
                 }
-                
-                // Reset the file input and display
-                fileInput.value = '';
-                resetFilenameDisplay();
-                
-                // Optional: Refresh the keywords list
-                // loadKeywords();
+
+                function updateMarkAllCheckbox() {
+                    const allCheckboxes = treeContainer.querySelectorAll('.result-checkbox');
+                    const allChecked = allCheckboxes.length > 0 && Array.from(allCheckboxes).every(cb => cb.checked);
+                    const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
+                    const markAllCheckbox = document.getElementById('mark-all-checkbox');
+                    if (markAllCheckbox) {
+                        markAllCheckbox.checked = allChecked;
+                        markAllCheckbox.indeterminate = someChecked && !allChecked;
+                    }
+                }
+
+                window.bulkSearchController = null;
+
+                window.bulkSearchController = new AbortController();
+
+                // Stop button functionality
+                // stopBtn.onclick = () => {
+                //     if (window.bulkSearchController) {
+                //         console.warn('⛔ Stopping bulk search...');
+                //         stopBtn.disabled = true;
+                //         stopBtn.textContent = 'Stopping...';
+                //         window.bulkSearchController.abort();
+                        
+                //         setTimeout(() => {
+                //             stopBtn.textContent = 'Stopped';
+                //             stopBtn.disabled = false;
+                //             stopBtn.style.display = 'none';
+                //         }, 600);
+
+                //         startButton.disabled = false;
+                //         startButton.innerHTML = originalText;
+                //     }
+                // };
+
+                stopBtn.onclick = () => {
+                    if (window.bulkSearchController) {
+                        console.warn('⛔ Stopping bulk search...');
+                        stopBtn.disabled = true;
+                        stopBtn.textContent = 'Stopping...';
+                        window.bulkSearchController.abort();
+                        
+                        setTimeout(() => {
+                            stopBtn.textContent = 'Stopped';
+                            stopBtn.disabled = false;
+                            stopBtn.style.display = 'none';
+
+                            // Clean up UI
+                            startButton.disabled = false;
+                            startButton.innerHTML = originalText;
+
+                            // Remove loading elements
+                            const loadingBlock = document.querySelector('.text-center');
+                            if (loadingBlock) loadingBlock.remove();
+                            const progressContainer = document.getElementById('progress-container');
+                            if (progressContainer) progressContainer.remove();
+
+                            // ✅ ADD THIS: Render paginated results with whatever was collected before stopping
+                            if (window.bulkResults && Object.keys(window.bulkResults).length > 0) {
+                                renderBulkPaginatedResults(1);
+                                
+                                // Re-initialize checkboxes after a short delay to ensure DOM is ready
+                                setTimeout(() => {
+                                    if (typeof initializeBulkSearchCheckboxes === 'function') {
+                                        initializeBulkSearchCheckboxes();
+                                    }
+                                }, 100);
+                            } else {
+                                // If no results were collected, show a message
+                                resultsContainer.innerHTML = `
+                                    <div class="alert alert-info mt-3">
+                                        Search was stopped. No results were collected.
+                                    </div>
+                                `;
+                            }
+
+                            // Clean up abort controller
+                            window.bulkSearchController = null;
+                        }, 600);
+                    }
+                };
+
+                try {
+                    // Get the bulk limit from the input field
+                    const bulkLimitInput = document.getElementById('bulk-limit-input');
+                    const bulkLimit = bulkLimitInput.value ? parseInt(bulkLimitInput.value) : 20; // Default to 20 if empty
+                    const response = await fetch(`${API_BASE_URL}/api/bulk-keywords-search/?bulk_limit=${bulkLimit}`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem("accessToken")}`
+                        },
+                        body: formData,
+                        signal: window.bulkSearchController.signal  // Add abort signal
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Failed to start bulk search');
+                    }
+
+                    if (!response.body) {
+                        throw new Error('ReadableStream not supported in this browser');
+                    }
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+
+                    // Process the stream
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        
+                        // Check if aborted
+                        if (window.bulkSearchController.signal.aborted) {
+                            break;
+                        }
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        
+                        // Keep the last incomplete line in buffer
+                        buffer = lines.pop() || '';
+                        
+                        for (const line of lines) {
+                            if (line.trim() === '') continue;
+                            
+                            if (line.startsWith('event: ')) {
+                                const eventType = line.slice(7).trim();
+                                console.log('Event:', eventType);
+                            } else if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    processStreamData(data);
+                                } catch (e) {
+                                    console.error('Parse error:', e, 'Line:', line);
+                                }
+                            }
+                        }
+                    }
+
+                    // Stream completed
+                    console.log('Bulk search completed');
+                    
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.log('Bulk search was cancelled by user');
+                        showFileError('Bulk search was cancelled');
+                    } else {
+                        console.error('Stream processing error:', error);
+                        showFileError(error.message || 'Error processing bulk search');
+                    }
+                } finally {
+                    // Clean up the controller
+                    window.bulkSearchController = null;
+                }
+
+                // Function to process stream data
+                function processStreamData(data) {
+                    // Handle meta event
+                    if (data.total_keywords !== undefined) {
+                        console.log(`Total keywords to process: ${data.total_keywords}`);
+                        return;
+                    }
+
+                    // Handle keyword_start event
+                    if (data.keyword && data.index) {
+                        const keyword = data.keyword.word;
+                        const keywordId = data.keyword.id;
+
+                        console.log(`Starting keyword ${data.index}: ${keyword}`);
+                        console.log(`Starting keyword ID ${data.index}: ${keywordId}`);
+                        
+                        if (!window.bulkResults[keyword]) {
+                            window.bulkResults[keyword] = [];
+
+                            // Store keyword ID mapping
+                            if (!window.bulkKeywordIds) {
+                                window.bulkKeywordIds = {};
+                            }
+                            window.bulkKeywordIds[keyword] = keywordId;
+                            
+                            // Create keyword section
+                            const keywordSection = document.createElement('div');
+                            keywordSection.className = 'keyword-results-section mb-4';
+                            keywordSection.id = `keyword-${keyword.replace(/\s+/g, '-')}`;
+                            keywordSection.innerHTML = `
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input keyword-checkbox" type="checkbox" 
+                                        data-keyword="${keyword}" checked>
+                                    <label class="form-check-label h5 mb-0">
+                                        Results for "${keyword}"
+                                    </label>
+                                    <span class="badge bg-secondary ms-2 keyword-counter">0 links</span>
+                                </div>
+                                <div class="keyword-results-content mt-2" id="results-${keyword.replace(/\s+/g, '-')}"></div>
+                            `;
+                            
+                            treeContainer.appendChild(keywordSection);
+
+                            // Show action buttons when first keyword starts
+                            if (actionButtonsContainer.style.display === 'none') {
+                                actionButtonsContainer.style.display = 'flex';
+                                
+                                // Add Stop button to action container
+                                const stopBtnWrapper = document.createElement('div');
+                                stopBtnWrapper.className = 'ms-2';
+                                stopBtnWrapper.appendChild(stopBtn);
+                                actionButtonsContainer.appendChild(stopBtnWrapper);
+                                stopBtn.style.display = 'inline-block';
+                            }
+                        }
+                        return;
+                    }
+
+                    // Handle regular data with node
+                    if (data.keyword && data.node) {
+                        const keyword = data.keyword.word;
+                        const node = data.node;
+                        const progress = data.progress;
+
+                        if (!window.bulkResults[keyword]) {
+                            window.bulkResults[keyword] = [];
+                        }
+
+                        // Create unique ID for tracking
+                        const resultIndex = window.bulkResults[keyword].length;
+                        const resultWithId = {
+                            ...node,
+                            keyword: keyword,
+                            originalIndex: resultIndex,
+                            uniqueId: `${keyword}-${resultIndex}`
+                        };
+
+                        // Add to selectedItems if markAllActive
+                        if (window.markAllActive) {
+                            window.selectedItems.add(resultWithId.uniqueId);
+                        }
+
+                        // Render the node — this function will handle internal storage
+                        const keywordResultsContainer = document.getElementById(`results-${keyword.replace(/\s+/g, '-')}`);
+                        if (keywordResultsContainer) {
+                            renderBulkNode(resultWithId, keywordResultsContainer, 0, null, 0, keyword);
+
+                            // Update keyword counter
+                            const keywordCounter = keywordResultsContainer.parentNode.querySelector('.keyword-counter');
+                            if (keywordCounter) {
+                                keywordCounter.textContent = `${window.bulkResults[keyword].length} links`;
+                            }
+                        }
+
+                        // Update overall progress bar
+                        if (progress && progressBar) {
+                            const percent = progress.total ? Math.round((progress.current / progress.total) * 100) : 0;
+                            progressBar.style.width = percent + "%";
+                            progressBar.innerText = percent + "%";
+                        }
+
+                        updateLinksCounter();
+                        console.log("✅ bulkResults updated for", keyword, window.bulkResults[keyword].length, "items total");
+                        return;
+                    }
+
+                    // Handle keyword_done event
+                    if (data.keyword && data.total_results !== undefined) {
+                        console.log(`Completed keyword: ${data.keyword.word}, Results: ${data.total_results}, Engine: ${data.engine_used}`);
+                        return;
+                    }
+
+                    // Handle done event
+                    if (data.message) {
+                        console.log('Bulk search complete:', data.message);
+                        
+                        // Clean up
+                        if (stopBtn) {
+                            stopBtn.style.display = 'none';
+                        }
+                        
+                        startButton.disabled = false;
+                        startButton.innerHTML = originalText;
+
+                        // Remove loading elements
+                        const loadingBlock = document.querySelector('.text-center');
+                        if (loadingBlock) loadingBlock.remove();
+                        const progressContainer = document.getElementById('progress-container');
+                        if (progressContainer) progressContainer.remove();
+
+                        // Clean up abort controller
+                        window.bulkSearchController = null;
+
+                        // Render paginated results for bulk search
+                        renderBulkPaginatedResults(1);
+                        return;
+                    }
+                }
 
             } catch (error) {
                 console.error('Upload error:', error);
                 showFileError(error.message || 'Failed to upload file. Please try again.');
-            } finally {
-                // Reset button state
                 startButton.disabled = false;
                 startButton.innerHTML = originalText;
             }
         }
+
 
         // Make uploadFileToBackend available globally if needed
         window.uploadFileToBackend = uploadFileToBackend;
@@ -373,169 +1070,249 @@
                     showAlert('danger', 'Please select a project first');
                     return;
                 }
-                if (!window.lastResults || window.lastResults.length === 0) {
+
+                // Check if it's a bulk search or single search
+                const isBulkSearch = window.bulkResults && Object.keys(window.bulkResults).length > 0;
+                const isSingleSearch = window.lastResults && Array.isArray(window.lastResults) && window.lastResults.length > 0;
+
+                if (!isBulkSearch && !isSingleSearch) {
+                    console.log('No search results found. Please run a search first.')
                     showAlert('danger', 'No search results found. Please run a search first.');
                     return;
                 }
-                if (!window.currentKeywordId) {
-                    showAlert('danger', 'Missing keyword context. Please run a new search.');
-                    return;
-                }
 
-                // ✅ CHANGED: Use selectedItems for all pages instead of querying DOM
+                // Use selectedItems for all pages
                 const checkedIds = new Set(window.selectedItems || []);
 
-                if (checkedIds.size === 0) { // CHANGED
+                if (checkedIds.size === 0) {
                     showAlert('danger', 'Please select at least one item to save');
                     return;
                 }
 
                 console.debug('SAVE CLICKED -> window.selectedItems:', Array.from(window.selectedItems || []));
-                console.debug('window.lastResults length:', window.lastResults ? window.lastResults.length : 0);
-                console.debug('window.lastResults sample (first 3):', (window.lastResults || []).slice(0,3));
+                
+                let merged = [];
+                let notFound = [];
 
-                // normalize helper (strip trailing slashes and protocol for best-effort matching)
-                function normalizeUrlForMatch(u) {
-                    if (!u) return u;
-                    try {
-                        // return host+path without trailing slash and protocol
-                        // leave query/hash intact to be conservative
-                        let s = u + '';
-                        // decode percent-encoding where possible
-                        try { s = decodeURIComponent(s); } catch (e) { /* ignore decode errors */ }
-                        s = s.replace(/^https?:\/\//i, '').replace(/^\/\/+/,'').replace(/\/+$/,'');
-                        // optional: remove leading www. for looser match
-                        s = s.replace(/^www\./i, '');
-                        return s;
-                    } catch (e) {
-                        return u;
+                if (isBulkSearch) {
+                    // Build keyword_results from window.bulkResults (your code stores an ARRAY per keyword)
+                    const keywordResults = [];
+                    const selectedSet = new Set(Array.from(window.selectedItems || []));
+
+                    Object.keys(window.bulkResults || {}).forEach(keyword => {
+                        const allResults = window.bulkResults[keyword] || []; // plain array in your app
+                        const selectedForThisKeyword = allResults.filter(r => {
+                            // r.uniqueId is created as `${keyword}-${resultIndex}` in processStreamData
+                            if (!r) return false;
+                            if (selectedSet.has(r.uniqueId)) return true;
+                            // fallback checks (some older ids in your selectedSet may be numeric strings or just indexes)
+                            if (selectedSet.has(String(r.originalIndex))) return true;
+                            if (selectedSet.has(`${keyword}-${r.originalIndex}`)) return true;
+                            // final fallback: selected entries that end with `-<index>` (covers some path-like ids)
+                            return Array.from(selectedSet).some(s => typeof s === 'string' && s.endsWith(`-${r.originalIndex}`));
+                        });
+
+                        if (selectedForThisKeyword.length > 0) {
+                            keywordResults.push({
+                                keyword_id: (window.bulkKeywordIds && window.bulkKeywordIds[keyword]) || null,
+                                keyword: keyword,
+                                items: selectedForThisKeyword
+                            });
+                        }
+                    });
+
+                    if (keywordResults.length === 0) {
+                        showAlert('danger', 'No selected results found in bulk search.');
+                        return;
                     }
-                }
 
-                // find by path (e.g. "0-2-1"), returns node or null
-                function findNodeByPath(nodes, pathArr) {
-                    let current = nodes;
-                    let node = null;
-                    for (let i = 0; i < pathArr.length; i++) {
-                        const idx = pathArr[i];
-                        if (!Array.isArray(current) || typeof current[idx] === 'undefined') return null;
-                        node = current[idx];
-                        current = node.children || [];
+                    // Send to bulk endpoint expected by your backend
+                    fetch(`${API_BASE_URL}/api/save-bulk-keyword-results/`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${localStorage.getItem("accessToken")}`
+                        },
+                        body: JSON.stringify({
+                            bulk_data: window.bulkResults,
+                            keyword_results: keywordResults,
+                            folder_id: folderSelect?.value || null,
+                            project_id: projectSelect?.value || null
+                        })
+                    })
+                    .then(async res => {
+                        const payload = await res.json().catch(() => null);
+                        if (!res.ok) {
+                            const errMsg = (payload && payload.error) || (payload && payload.message) || 'Bulk save failed';
+                            showAlert('danger', errMsg);
+                            return;
+                        }
+                        showAlert('success', (payload && payload.message) || `Saved ${payload?.total_saved || 0} items across keywords`);
+                    })
+                    .catch(err => {
+                        console.error("Bulk save failed", err);
+                        showAlert('danger', 'Bulk save failed (network or server error)');
+                    });
+                } else {
+                    // SINGLE SEARCH SAVE LOGIC
+                    console.debug('Single search - lastResults length:', window.lastResults.length);
+                    
+                    // Check for single search keyword context
+                    if (!window.currentKeywordId) {
+                        showAlert('danger', 'Missing keyword context. Please run a new search.');
+                        return;
                     }
-                    return node;
-                }
-
-                // flexible recursive search by URL with several fallbacks
-                function findNodeByUrlFlexible(nodes, id) {
-                    if (!nodes || !nodes.length) return null;
-                    const normId = normalizeUrlForMatch(id);
-
-                    // depth-first
-                    for (let i = 0; i < nodes.length; i++) {
-                        const node = nodes[i];
-                        if (!node) continue;
-
-                        // direct match
-                        if (node.url === id) return node;
-
-                        // normalized match
-                        if (normalizeUrlForMatch(node.url) === normId) return node;
-
-                        // decoded match (in case one is encoded)
+                    
+                    // normalize helper
+                    function normalizeUrlForMatch(u) {
+                        if (!u) return u;
                         try {
-                            if (decodeURIComponent(node.url) === id || decodeURIComponent(id) === node.url) return node;
-                        } catch (e) { /* ignore decode errors */ }
-
-                        // try partial match (host+path)
-                        try {
-                            const nnode = normalizeUrlForMatch(node.url);
-                            if (nnode && normId && (nnode === normId || nnode.indexOf(normId) !== -1 || normId.indexOf(nnode) !== -1)) {
-                                return node;
-                            }
-                        } catch (e) {}
-
-                        // search children
-                        if (node.children && node.children.length) {
-                            const found = findNodeByUrlFlexible(node.children, id);
-                            if (found) return found;
+                            let s = u + '';
+                            try { s = decodeURIComponent(s); } catch (e) { /* ignore decode errors */ }
+                            s = s.replace(/^https?:\/\//i, '').replace(/^\/\/+/,'').replace(/\/+$/,'');
+                            s = s.replace(/^www\./i, '');
+                            return s;
+                        } catch (e) {
+                            return u;
                         }
                     }
-                    return null;
+
+                    // find by path
+                    function findNodeByPath(nodes, pathArr) {
+                        let current = nodes;
+                        let node = null;
+                        for (let i = 0; i < pathArr.length; i++) {
+                            const idx = pathArr[i];
+                            if (!Array.isArray(current) || typeof current[idx] === 'undefined') return null;
+                            node = current[idx];
+                            current = node.children || [];
+                        }
+                        return node;
+                    }
+
+                    // flexible recursive search by URL
+                    function findNodeByUrlFlexible(nodes, id) {
+                        if (!nodes || !nodes.length) return null;
+                        const normId = normalizeUrlForMatch(id);
+
+                        for (let i = 0; i < nodes.length; i++) {
+                            const node = nodes[i];
+                            if (!node) continue;
+
+                            if (node.url === id) return node;
+                            if (normalizeUrlForMatch(node.url) === normId) return node;
+
+                            try {
+                                if (decodeURIComponent(node.url) === id || decodeURIComponent(id) === node.url) return node;
+                            } catch (e) { }
+
+                            try {
+                                const nnode = normalizeUrlForMatch(node.url);
+                                if (nnode && normId && (nnode === normId || nnode.indexOf(normId) !== -1 || normId.indexOf(nnode) !== -1)) {
+                                    return node;
+                                }
+                            } catch (e) {}
+
+                            if (node.children && node.children.length) {
+                                const found = findNodeByUrlFlexible(node.children, id);
+                                if (found) return found;
+                            }
+                        }
+                        return null;
+                    }
+
+                    const seenUrls = new Set();
+                    (Array.from(window.selectedItems || [])).forEach(idStr => {
+                        if (!idStr) return;
+
+                        const pathLike = /^(\d+(-\d+)*)$/.test(idStr);
+                        let origNode = null;
+                        
+                        if (pathLike) {
+                            const pathArr = idStr.split('-').map(x => parseInt(x, 10));
+                            origNode = findNodeByPath(window.lastResults, pathArr);
+                        }
+
+                        if (!origNode) {
+                            origNode = findNodeByUrlFlexible(window.lastResults, idStr);
+                        }
+
+                        if (!origNode) {
+                            notFound.push(idStr);
+                        } else {
+                            const urlKey = origNode.url || JSON.stringify(origNode).slice(0,50);
+                            if (seenUrls.has(urlKey)) return;
+                            merged.push(JSON.parse(JSON.stringify(origNode)));
+                            seenUrls.add(urlKey);
+                        }
+                    });
                 }
 
-                // Build merged result list using flexible matching and path fallback.
-                // We'll report which selected IDs couldn't be found.
-                const merged = [];
-                const seenUrls = new Set();
-                const notFound = [];
-
-                (Array.from(window.selectedItems || [])).forEach(idStr => {
-                    if (!idStr) return;
-
-                    // if idStr looks like a path "0-2-1" (only digits and dashes), try path lookup first
-                    const pathLike = /^(\d+(-\d+)*)$/.test(idStr);
-
-                    let origNode = null;
-                    if (pathLike) {
-                        // try path lookup
-                        const pathArr = idStr.split('-').map(x => parseInt(x, 10));
-                        origNode = findNodeByPath(window.lastResults, pathArr);
-                    }
-
-                    // if not found by path (or not path-like), try URL-flexible search
-                    if (!origNode) {
-                        origNode = findNodeByUrlFlexible(window.lastResults, idStr);
-                    }
-
-                    if (!origNode) {
-                        notFound.push(idStr);
-                    } else {
-                        const urlKey = origNode.url || JSON.stringify(origNode).slice(0,50);
-                        if (seenUrls.has(urlKey)) return;
-                        // deep clone to decouple from in-memory objects
-                        merged.push(JSON.parse(JSON.stringify(origNode)));
-                        seenUrls.add(urlKey);
-                    }
-                });
-
-                // debug results
-                console.debug('Merged items count:', merged.length, 'notFound count:', notFound.length, 'notFound sample:', notFound.slice(0,10));
-
-                if (merged.length === 0) {
-                    // show a clearer message to user while also printing debug to console
+                // Common save logic for both bulk and single search
+                if (!isBulkSearch && merged.length === 0) {
                     showAlert('danger', 'No valid items to save — selections did not match results. Check console logs for details.');
-                    console.error('Save aborted: no matched nodes. selectedIds:', Array.from(window.selectedItems || []), 'notFound:', notFound, 'lastResults sample:', (window.lastResults||[]).slice(0,5));
+                    console.error('Save aborted: no matched nodes. selectedIds:', Array.from(window.selectedItems || []), 'notFound:', notFound);
                     return;
                 }
 
-
-                // POST to backend
-                fetch(`${API_BASE_URL}/api/save-keyword-results/`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${localStorage.getItem("accessToken")}`
-                    },
-                    body: JSON.stringify({
-                        items: merged,
-                        keyword_id: window.currentKeywordId,
-                        folder_id: folderSelect?.value || null,
-                        project_id: projectSelect?.value || null
+                // POST to backend - handle bulk vs single search differently
+                if (isBulkSearch) {
+                    // For bulk search, we don't use keyword_id since we have multiple keywords
+                    fetch(`${API_BASE_URL}/api/save-keyword-results/`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${localStorage.getItem("accessToken")}`
+                        },
+                        body: JSON.stringify({
+                            items: merged,
+                            // No keyword_id for bulk search - backend should handle multiple keywords
+                            folder_id: folderSelect?.value || null,
+                            project_id: projectSelect?.value || null
+                        })
                     })
-                })
-                .then(async res => {
-                    const payload = await res.json().catch(() => null);
-                    if (!res.ok) {
-                        const errMsg = (payload && payload.error) || (payload && payload.message) || 'Save failed';
-                        showAlert('danger', errMsg);
-                        return;
-                    }
-                    showAlert('success', (payload && payload.message) || `Saved ${payload?.ids?.length || 0} items`);
-                })
-                .catch(err => {
-                    console.error("Save failed", err);
-                    showAlert('danger', 'Save failed (network or server error)');
-                });
+                    .then(async res => {
+                        const payload = await res.json().catch(() => null);
+                        if (!res.ok) {
+                            const errMsg = (payload && payload.error) || (payload && payload.message) || 'Save failed';
+                            showAlert('danger', errMsg);
+                            return;
+                        }
+                        showAlert('success', (payload && payload.message) || `Saved ${payload?.ids?.length || 0} items from bulk search`);
+                    })
+                    .catch(err => {
+                        console.error("Bulk save failed", err);
+                        showAlert('danger', 'Bulk save failed (network or server error)');
+                    });
+                } else {
+                    // For single search, use the original logic with keyword_id
+                    fetch(`${API_BASE_URL}/api/save-keyword-results/`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${localStorage.getItem("accessToken")}`
+                        },
+                        body: JSON.stringify({
+                            items: merged,
+                            keyword_id: window.currentKeywordId,
+                            folder_id: folderSelect?.value || null,
+                            project_id: projectSelect?.value || null
+                        })
+                    })
+                    .then(async res => {
+                        const payload = await res.json().catch(() => null);
+                        if (!res.ok) {
+                            const errMsg = (payload && payload.error) || (payload && payload.message) || 'Save failed';
+                            showAlert('danger', errMsg);
+                            return;
+                        }
+                        showAlert('success', (payload && payload.message) || `Saved ${payload?.ids?.length || 0} items`);
+                    })
+                    .catch(err => {
+                        console.error("Save failed", err);
+                        showAlert('danger', 'Save failed (network or server error)');
+                    });
+                }
             }
         });
         // Save selected button functionality ends
@@ -676,453 +1453,7 @@
 
 
         // const resultsContainer = document.getElementById("results-content");
-        const progressBar = document.getElementById("progress-bar");
-
-        // searchBtn.addEventListener("click", async () => {
-        //     const keyword = (keywordInput.value || '').trim();
-        //     const depth = depthInput.value || 0;
-
-        //     if (!keyword) {
-        //         resultsContainer.innerHTML = `<p class="text-danger">Please enter a keyword</p>`;
-        //         return;
-        //     }
-
-        //     try {
-        //         // Disable search button and show spinner
-        //         searchBtn.disabled = true;
-        //         searchBtn.innerHTML = `
-        //             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        //             Searching...
-        //         `;
-
-        //         // Render initial loading + progress + results container (keeps original look)
-        //         resultsContainer.innerHTML = `
-        //             <div id="loading-container" class="text-center mb-3">
-        //                 <div class="spinner-border text-primary mb-2" role="status">
-        //                     <span class="visually-hidden">Loading...</span>
-        //                 </div>
-        //                 <p class="searching-pulse">Searching for "${keyword}"...</p>
-        //             </div>
-        //             <div id="progress-container" class="mt-2">
-        //                 <div class="progress">
-        //                     <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
-        //                 </div>
-        //             </div>
-        //             <div id="results-tree-container" class="mt-3">
-        //                 <ul id="results-tree" class="list-group list-group-flush"></ul>
-        //             </div>
-        //         `;
-
-        //         // Initialize
-        //         window.lastResults = [];
-        //         const selectedItems = new Set();
-        //         const treeContainer = document.getElementById("results-tree");
-        //         const progressBar = document.getElementById("progress-bar");
-
-        //         // Insert action buttons same as original style location
-        //         // We put them above the results-tree-container to match existing layout
-        //         const actionButtonsContainer = document.createElement("div");
-        //         actionButtonsContainer.id = 'action-buttons-container';
-        //         actionButtonsContainer.className = 'd-flex align-items-center mt-3 mb-3 ms-2';
-        //         actionButtonsContainer.style.display = 'none';
-        //         actionButtonsContainer.innerHTML = `
-        //             <div class="form-check me-5">
-        //                 <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
-        //                 <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
-        //             </div>
-        //             <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
-        //         `;
-        //         // place action buttons just before results tree container
-        //         const treeContainerWrapper = document.getElementById('results-tree-container');
-        //         treeContainerWrapper.parentNode.insertBefore(actionButtonsContainer, treeContainerWrapper);
-
-        //         const markAllCheckbox = document.getElementById('mark-all-checkbox');
-        //         const saveSelectedBtn = document.getElementById('save-selected-btn');
-
-        //         // Render a single node (styled similarly to original)
-        //         function renderNode(n, parentUl) {
-        //             const li = document.createElement("li");
-        //             li.className = "list-group-item py-1"; // good Bootstrap default
-        //             // Keep link clickable and same minimal markup as original aesthetics
-        //             li.innerHTML = `
-        //                 <input type="checkbox" class="result-checkbox me-2" data-id="${n.url}" data-has-children="${n.children && n.children.length > 0}">
-        //                 <a href="${n.url}" target="_blank" rel="noopener noreferrer"><strong>${n.title || n.url}</strong></a>
-        //                 <div><small class="text-muted">${n.url}</small></div>
-        //             `;
-        //             parentUl.appendChild(li);
-
-        //             const checkbox = li.querySelector(".result-checkbox");
-
-        //             // checkbox behavior — keeps parent-child semantics
-        //             checkbox.onchange = () => {
-        //                 if (checkbox.checked) {
-        //                     selectedItems.add(checkbox.dataset.id);
-        //                 } else {
-        //                     selectedItems.delete(checkbox.dataset.id);
-        //                 }
-
-        //                 if (checkbox.dataset.hasChildren === "true") {
-        //                     // check/uncheck all children in this subtree
-        //                     const childCheckboxes = li.querySelectorAll('.result-checkbox');
-        //                     childCheckboxes.forEach(child => {
-        //                         child.checked = checkbox.checked;
-        //                         if (checkbox.checked) {
-        //                             selectedItems.add(child.dataset.id);
-        //                         } else {
-        //                             selectedItems.delete(child.dataset.id);
-        //                         }
-        //                     });
-        //                 }
-
-        //                 // update mark-all state
-        //                 const allCheckboxes = treeContainer.querySelectorAll('.result-checkbox');
-        //                 const allChecked = allCheckboxes.length > 0 && Array.from(allCheckboxes).every(cb => cb.checked);
-        //                 const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
-        //                 markAllCheckbox.checked = allChecked;
-        //                 markAllCheckbox.indeterminate = someChecked && !allChecked;
-        //             };
-
-        //             // children
-        //             if (n.children && n.children.length > 0) {
-        //                 const ul = document.createElement("ul");
-        //                 ul.className = "list-group list-group-flush ms-4";
-        //                 li.appendChild(ul);
-        //                 n.children.forEach(child => renderNode(child, ul));
-        //             }
-        //         }
-
-        //         // Open SSE connection
-        //         const evtSource = new EventSource(`${API_BASE_URL}/api/search-keywords/?q=${encodeURIComponent(keyword)}&limit=${depth}`);
-
-        //         evtSource.onmessage = function(event) {
-        //             // incoming data is a node + progress
-        //             try {
-        //                 const data = JSON.parse(event.data);
-        //                 const node = data.node;
-        //                 const progress = data.progress;
-
-        //                 // show action buttons when first item arrives
-        //                 if (actionButtonsContainer.style.display === 'none') {
-        //                     actionButtonsContainer.style.display = 'flex';
-        //                 }
-
-        //                 // update progress bar (progress.total may be 'limit' expected)
-        //                 if (progress && typeof progress.current !== 'undefined') {
-        //                     const total = progress.total || 0; // may be expected limit
-        //                     const percent = total ? Math.round((progress.current / total) * 100) : 0;
-        //                     progressBar.style.width = (percent ? percent : 0) + "%";
-        //                     progressBar.innerText = (percent ? percent : 0) + "%";
-        //                 }
-
-        //                 // append immediately
-        //                 window.lastResults.push(node);
-        //                 renderNode(node, treeContainer);
-        //             } catch (parseErr) {
-        //                 console.error("Failed to parse SSE message", parseErr);
-        //             }
-        //         };
-
-        //         evtSource.addEventListener("done", function(event) {
-        //             // stream finished
-        //             try {
-        //                 const payload = event.data ? JSON.parse(event.data) : null;
-        //                 const total_received = payload?.total_received ?? null;
-        //             } catch (e) {
-        //                 // ignore parse errors here
-        //             }
-
-        //             evtSource.close();
-        //             // Re-enable UI
-        //             searchBtn.disabled = false;
-        //             searchBtn.innerHTML = 'Search';
-
-        //             // Remove the initial loader block
-        //             const loadingBlock = document.getElementById('loading-container');
-        //             if (loadingBlock) loadingBlock.remove();
-
-        //             // Hide progress bar container entirely (user requested it be hidden after completion)
-        //             const progressContainer = document.getElementById('progress-container');
-        //             if (progressContainer) progressContainer.remove();
-
-        //             // Optional success message (brief)
-        //             const doneMsg = document.createElement("div");
-        //             doneMsg.className = "alert alert-success py-1 mt-2";
-        //             doneMsg.innerText = "Search complete.";
-        //             // place it above results
-        //             treeContainerWrapper.parentNode.insertBefore(doneMsg, treeContainerWrapper);
-
-        //             // Remove the message after 3 seconds so UI is not cluttered
-        //             setTimeout(() => {
-        //                 try { doneMsg.remove(); } catch (e) {}
-        //             }, 3000);
-        //         });
-
-        //         evtSource.onerror = function(err) {
-        //             console.error("SSE error:", err);
-        //             evtSource.close();
-        //             searchBtn.disabled = false;
-        //             searchBtn.innerHTML = 'Search';
-        //             const errMsg = document.createElement("p");
-        //             errMsg.className = "text-danger mt-2";
-        //             errMsg.innerText = "Error streaming results.";
-        //             resultsContainer.appendChild(errMsg);
-        //         };
-
-        //         // mark all checkbox
-        //         markAllCheckbox.onchange = (e) => {
-        //             const isChecked = e.target.checked;
-        //             const allCheckboxes = treeContainer.querySelectorAll('.result-checkbox');
-        //             allCheckboxes.forEach(cb => {
-        //                 cb.checked = isChecked;
-        //                 if (isChecked) selectedItems.add(cb.dataset.id);
-        //                 else selectedItems.delete(cb.dataset.id);
-        //             });
-        //         };
-
-        //         // save selected
-        //         saveSelectedBtn.onclick = () => {
-        //             console.log("Selected items:", Array.from(selectedItems));
-        //             alert(`Selected ${selectedItems.size} items saved!`);
-        //         };
-
-        //     } catch (e) {
-        //         console.error(e);
-        //         resultsContainer.innerHTML = `<p class="text-danger">Failed to fetch results</p>`;
-        //         searchBtn.disabled = false;
-        //         searchBtn.innerHTML = 'Search';
-        //     }
-        // });
-
-
-        // searchBtn.addEventListener("click", async () => {
-        //     const keyword = (keywordInput.value || '').trim();
-        //     const depth = depthInput.value || 0;
-
-        //     if (!keyword) {
-        //         resultsContainer.innerHTML = `<p class="text-danger">Please enter a keyword</p>`;
-        //         return;
-        //     }
-
-        //     try {
-        //         searchBtn.disabled = true;
-        //         searchBtn.innerHTML = `
-        //             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-        //             Searching...
-        //         `;
-
-        //         // Initial loading + progress
-        //         resultsContainer.innerHTML = `
-        //             <div id="loading-container" class="text-center mb-3">
-        //                 <div class="spinner-border text-primary mb-2" role="status">
-        //                     <span class="visually-hidden">Loading...</span>
-        //                 </div>
-        //                 <p class="searching-pulse">Searching for "${keyword}"...</p>
-        //             </div>
-        //             <div id="progress-container" class="mt-2">
-        //                 <div class="progress">
-        //                     <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
-        //                 </div>
-        //             </div>
-        //             <div id="results-tree-container" class="mt-3">
-        //                 <ul id="results-tree" class="list-group list-group-flush"></ul>
-        //             </div>
-        //         `;
-
-        //         const treeContainerWrapper = document.getElementById('results-tree-container');
-        //         const treeContainer = document.getElementById('results-tree');
-        //         const progressBar = document.getElementById('progress-bar');
-
-        //         // Single source of truth
-        //         window.lastResults = [];
-        //         window.selectedItems = new Set();
-
-        //         // Create action buttons (Mark All + Save)
-        //         const actionButtonsContainer = document.createElement("div");
-        //         actionButtonsContainer.id = 'action-buttons-container';
-        //         actionButtonsContainer.className = 'd-flex align-items-center mt-5 mb-3 ms-2';
-        //         actionButtonsContainer.style.display = 'none';
-        //         actionButtonsContainer.innerHTML = `
-        //             <div class="form-check me-5">
-        //                 <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
-        //                 <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
-        //             </div>
-        //             <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
-        //         `;
-        //         treeContainerWrapper.parentNode.insertBefore(actionButtonsContainer, treeContainerWrapper);
-
-        //         const markAllCheckbox = document.getElementById('mark-all-checkbox');
-        //         const saveSelectedBtn = document.getElementById('save-selected-btn');
-
-        //         // SSE node rendering
-        //         function renderNode(n, parentUl) {
-        //             const li = document.createElement("li");
-        //             li.className = "list-group-item py-1";
-        //             li.innerHTML = `
-        //                 <input type="checkbox" class="result-checkbox me-2" data-id="${n.url}" data-has-children="${n.children && n.children.length > 0}">
-        //                 <a href="${n.url}" target="_blank" rel="noopener noreferrer"><strong>${n.title || n.url}</strong></a>
-        //                 <div><small class="text-muted">${n.url}</small></div>
-        //             `;
-        //             parentUl.appendChild(li);
-
-        //             const checkbox = li.querySelector(".result-checkbox");
-        //             // Restore state if previously selected
-        //             checkbox.checked = window.selectedItems.has(n.url);
-
-        //             checkbox.onchange = () => {
-        //                 if (checkbox.checked) window.selectedItems.add(checkbox.dataset.id);
-        //                 else window.selectedItems.delete(checkbox.dataset.id);
-
-        //                 if (checkbox.dataset.hasChildren === "true") {
-        //                     const childCheckboxes = li.querySelectorAll('.result-checkbox');
-        //                     childCheckboxes.forEach(child => {
-        //                         child.checked = checkbox.checked;
-        //                         if (checkbox.checked) window.selectedItems.add(child.dataset.id);
-        //                         else window.selectedItems.delete(child.dataset.id);
-        //                     });
-        //                 }
-
-        //                 updateMarkAllCheckbox();
-        //             };
-
-        //             if (n.children && n.children.length > 0) {
-        //                 const ul = document.createElement("ul");
-        //                 ul.className = "list-group list-group-flush ms-4";
-        //                 li.appendChild(ul);
-        //                 n.children.forEach(child => renderNode(child, ul));
-        //             }
-        //         }
-
-        //         // Update mark all checkbox state
-        //         function updateMarkAllCheckbox() {
-        //             const allCheckboxes = treeContainer.querySelectorAll('.result-checkbox');
-        //             const allChecked = allCheckboxes.length > 0 && Array.from(allCheckboxes).every(cb => cb.checked);
-        //             const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
-        //             markAllCheckbox.checked = allChecked;
-        //             markAllCheckbox.indeterminate = someChecked && !allChecked;
-        //         }
-
-        //         // SSE connection
-        //         const evtSource = new EventSource(`${API_BASE_URL}/api/search-keywords/?q=${encodeURIComponent(keyword)}&limit=${depth}`);
-
-        //         evtSource.onmessage = function(event) {
-        //             try {
-        //                 const data = JSON.parse(event.data);
-        //                 const node = data.node;
-        //                 const progress = data.progress;
-
-        //                 if (actionButtonsContainer.style.display === 'none') actionButtonsContainer.style.display = 'flex';
-
-        //                 if (progress && typeof progress.current !== 'undefined') {
-        //                     const percent = progress.total ? Math.round((progress.current / progress.total) * 100) : 0;
-        //                     progressBar.style.width = percent + "%";
-        //                     progressBar.innerText = percent + "%";
-        //                 }
-
-        //                 window.lastResults.push(node);
-        //                 renderNode(node, treeContainer);
-        //             } catch (err) {
-        //                 console.error("SSE parse error:", err);
-        //             }
-        //         };
-
-        //         evtSource.addEventListener("done", function() {
-        //             evtSource.close();
-        //             searchBtn.disabled = false;
-        //             searchBtn.innerHTML = 'Search';
-
-        //             // Remove live tree + loader
-        //             const loadingBlock = document.getElementById('loading-container');
-        //             if (loadingBlock) loadingBlock.remove();
-        //             const progressContainer = document.getElementById('progress-container');
-        //             if (progressContainer) progressContainer.remove();
-        //             treeContainerWrapper.remove();
-
-        //             // Render paginated results
-        //             renderPaginatedResults(1);
-        //         });
-
-        //         evtSource.onerror = function(err) {
-        //             console.error("SSE error:", err);
-        //             evtSource.close();
-        //             searchBtn.disabled = false;
-        //             searchBtn.innerHTML = 'Search';
-        //             const errMsg = document.createElement("p");
-        //             errMsg.className = "text-danger mt-2";
-        //             errMsg.innerText = "Error streaming results.";
-        //             resultsContainer.appendChild(errMsg);
-        //         };
-
-        //         // Render paginated results
-        //         function renderPaginatedResults(page = 1) {
-        //             const startIndex = (page - 1) * itemsPerPage;
-        //             const paginated = window.lastResults.slice(startIndex, startIndex + itemsPerPage);
-        //             const itemsHtml = renderResults(paginated, 0, null, startIndex);
-
-        //             resultsContainer.innerHTML = `
-        //                 <h5>Results for "${keyword}"</h5>
-        //                 <div class="d-flex align-items-center mt-5 mb-3 ms-2" id="action-buttons-container">
-        //                     <div class="form-check me-5">
-        //                         <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
-        //                         <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
-        //                     </div>
-        //                     <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
-        //                 </div>
-        //                 <div id="save-message-container" class="mt-2"></div>
-        //                 <div id="results-content">${itemsHtml || '<p>No results.</p>'}</div>
-        //             `;
-
-        //             // Restore references
-        //             const markAllCheckboxFinal = document.getElementById('mark-all-checkbox');
-        //             const saveSelectedBtnFinal = document.getElementById('save-selected-btn');
-        //             const resultCheckboxesFinal = document.querySelectorAll('.result-checkbox');
-
-        //             // Restore checkbox states
-        //             resultCheckboxesFinal.forEach(cb => {
-        //                 cb.checked = window.selectedItems.has(cb.dataset.id);
-        //                 cb.onchange = () => {
-        //                     if (cb.checked) window.selectedItems.add(cb.dataset.id);
-        //                     else window.selectedItems.delete(cb.dataset.id);
-        //                     updateMarkAllCheckboxFinal();
-        //                 };
-        //             });
-
-        //             function updateMarkAllCheckboxFinal() {
-        //                 const allChecked = Array.from(resultCheckboxesFinal).every(cb => cb.checked);
-        //                 const someChecked = Array.from(resultCheckboxesFinal).some(cb => cb.checked);
-        //                 markAllCheckboxFinal.checked = allChecked;
-        //                 markAllCheckboxFinal.indeterminate = someChecked && !allChecked;
-        //             }
-
-        //             markAllCheckboxFinal.onchange = () => {
-        //                 const allResultIds = window.lastResults.map(r => r.url);
-        //                 if (markAllCheckboxFinal.checked) allResultIds.forEach(id => window.selectedItems.add(id));
-        //                 else allResultIds.forEach(id => window.selectedItems.delete(id));
-        //                 resultCheckboxesFinal.forEach(cb => {
-        //                     cb.checked = markAllCheckboxFinal.checked;
-        //                     cb.indeterminate = false;
-        //                 });
-        //             };
-
-        //             saveSelectedBtnFinal.onclick = () => {
-        //                 console.log("Selected items:", Array.from(window.selectedItems));
-        //                 alert(`Selected ${window.selectedItems.size} items saved!`);
-        //             };
-
-        //             // Pagination
-        //             if (window.lastResults.length > itemsPerPage) {
-        //                 const totalPages = Math.ceil(window.lastResults.length / itemsPerPage);
-        //                 currentPage = page;
-        //                 renderPagination(totalPages, page);
-        //             }
-        //         }
-
-        //     } catch (e) {
-        //         console.error(e);
-        //         resultsContainer.innerHTML = `<p class="text-danger">Failed to fetch results</p>`;
-        //         searchBtn.disabled = false;
-        //         searchBtn.innerHTML = 'Search';
-        //     }
-        // });
+        // const progressBar = document.getElementById("progress-bar");
 
 
 
@@ -1168,6 +1499,14 @@
             // e.g. updateMarkAllCheckboxForCheckboxList(document.getElementById('mark-all-checkbox'), visibleCheckboxes);
         });
 
+        // Update links counter
+        function updateLinksCounter() {
+            const linksCounter = document.getElementById('links-counter');
+            if (linksCounter) {
+                linksCounter.textContent = `Links: ${window.lastResults.length}`;
+            }
+        }
+
         searchBtn.addEventListener("click", async () => {
             const keyword = (keywordInput.value || '').trim();
             const depth = depthInput.value || 0;
@@ -1177,12 +1516,36 @@
                 return;
             }
 
+            // CLEAR EXISTING PAGINATION - ADD THIS
+            const existingPagination = document.getElementById('keyword-pagination');
+            if (existingPagination) {
+                existingPagination.remove();
+            }
+
+            // Clear any bulk search specific elements if they exist
+            const bulkPagination = document.querySelector('.pagination-container');
+            if (bulkPagination) {
+                bulkPagination.remove();
+            }
+
+            // Reset any conflicting global states
+            window.bulkResults = null;
+            window.currentBulkPage = 1;
+
             try {
                 searchBtn.disabled = true;
                 searchBtn.innerHTML = `
                     <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                     Searching...
                 `;
+
+                // Auto-scroll to results container when search starts
+                setTimeout(() => {
+                    resultsContainer.scrollIntoView({ 
+                        behavior: 'smooth', 
+                        block: 'start' 
+                    });
+                }, 100);
 
                 // Initial loading + progress
                 resultsContainer.innerHTML = `
@@ -1206,66 +1569,143 @@
                 const treeContainer = document.getElementById('results-tree');
                 const progressBar = document.getElementById('progress-bar');
 
+                // Set fixed height and scrolling for results container
+                treeContainerWrapper.style.maxHeight = '500px';
+                treeContainerWrapper.style.overflowY = 'auto';
+                treeContainerWrapper.style.border = '1px solid #ddd';
+
+                // Auto-scroll setup
+                let autoScroll = true;
+                let scrollTimeout;
+
+                treeContainerWrapper.addEventListener('scroll', () => {
+                    const threshold = 50;
+                    const isAtBottom = treeContainerWrapper.scrollTop + treeContainerWrapper.clientHeight >= treeContainerWrapper.scrollHeight - threshold;
+                    autoScroll = isAtBottom;
+                });
+
+                // Use MutationObserver to detect when new content is added and scroll to it
+                const scrollObserver = new MutationObserver((mutations) => {
+                    if (autoScroll) {
+                        // Cancel any pending scroll
+                        if (scrollTimeout) clearTimeout(scrollTimeout);
+                        
+                        // Schedule scroll after DOM update
+                        scrollTimeout = setTimeout(() => {
+                            treeContainerWrapper.scrollTo({
+                                top: treeContainerWrapper.scrollHeight,
+                                behavior: 'smooth'
+                            });
+                        }, 100);
+                    }
+                });
+
                 // Single source of truth
                 window.lastResults = [];
                 window.selectedItems = new Set();
-                window.markAllActive = false;
+                
+                // Since markAllActive is true, we'll add items to selectedItems as they come in
+                // The renderNode function will handle checking them based on markAllActive
+
+                window.markAllActive = true;
+                updateLinksCounter();
 
                 // Create action buttons (Mark All + Save)
                 const actionButtonsContainer = document.createElement("div");
                 actionButtonsContainer.id = 'action-buttons-container';
                 actionButtonsContainer.className = 'd-flex align-items-center mt-5 mb-3 ms-2';
                 actionButtonsContainer.style.display = 'none';
+
                 actionButtonsContainer.innerHTML = `
                     <div class="form-check me-5">
-                        <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
+                        <input class="form-check-input" type="checkbox" id="mark-all-checkbox" checked>
                         <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
                     </div>
                     <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
+                    <div class="dropdown ms-2">
+                        <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-download"></i>
+                            Export
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item export-btn" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> Export as CSV</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="excel"><i class="bi bi-file-earmark-excel"></i> Export as Excel</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
+                        </ul>
+                    </div>
+                    <div id="links-counter" class="ms-3 text-muted small">Links: 0</div>
                 `;
+
+                // Add export button event listeners
+                setTimeout(() => {
+                    const exportBtns = document.querySelectorAll('.export-btn');
+                    exportBtns.forEach(btn => {
+                        btn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            const format = this.getAttribute('data-format');
+                            console.log('Export button clicked:', format);
+                            exportResults(format);
+                        });
+                    });
+                }, 100);
+
                 treeContainerWrapper.parentNode.insertBefore(actionButtonsContainer, treeContainerWrapper);
 
                 const markAllCheckbox = document.getElementById('mark-all-checkbox');
                 const saveSelectedBtn = document.getElementById('save-selected-btn');
 
+                // Create Stop button to stop the Crawking starts
+                let stopBtn = document.getElementById('stop-search-btn');
+                if (!stopBtn) {
+                    stopBtn = document.createElement('button');
+                    stopBtn.id = 'stop-search-btn';
+                    stopBtn.className = 'btn btn-danger btn-sm ms-2';
+                    stopBtn.textContent = 'Stop';
+                }
+                stopBtn.style.display = 'none'; // Hide initially
+                stopBtn.disabled = false;
+                // Create Stop button to stop the Crawking ends
+
                 // SSE node rendering
-                function renderNode(n, parentUl) {
-                    const li = document.createElement("li");
-                    li.className = "list-group-item py-1";
-                    li.innerHTML = `
-                        <input type="checkbox" class="result-checkbox me-2" data-id="${n.url}" data-has-children="${n.children && n.children.length > 0}">
-                        <a href="${n.url}" target="_blank" rel="noopener noreferrer"><strong>${n.title || n.url}</strong></a>
-                        <div><small class="text-muted">${n.url}</small></div>
+                function renderNode(n, parentContainer, level = 0, parentIndex = null, baseIndex = 0) {
+                    const absoluteIndex = baseIndex + (window.lastResults.length || 0);
+                    const uniqueId = parentIndex !== null ? `${parentIndex}-${absoluteIndex}` : `${absoluteIndex}`;
+
+                    // ✅ Create the same card structure used in renderResults()
+                    const cardDiv = document.createElement("div");
+                    cardDiv.className = "card card-stream my-2 p-2";
+                    cardDiv.style.marginLeft = `${level * 20}px`;
+
+                    const isChecked = window.selectedItems.has(uniqueId) || !!window.markAllActive;
+
+                    cardDiv.innerHTML = `
+                        <div class="form-check">
+                            <input class="form-check-input result-checkbox" type="checkbox" 
+                                data-url="${n.url}" data-title="${n.title || n.url}"
+                                data-id="${uniqueId}" data-has-children="${n.children && n.children.length > 0}"
+                                ${isChecked ? 'checked' : ''}>
+                            <label class="form-check-label">
+                                <a href="${n.url}" target="_blank" rel="noreferrer noopener">
+                                    ${n.title || n.url}
+                                </a>
+                            </label>
+                        </div>
                     `;
-                    parentUl.appendChild(li);
 
-                    const checkbox = li.querySelector(".result-checkbox");
-                    // Restore state if previously selected
+                    parentContainer.appendChild(cardDiv);
+
+                    const checkbox = cardDiv.querySelector(".result-checkbox");
                     const id = checkbox.dataset.id;
-                    checkbox.checked = window.selectedItems.has(id) || !!window.markAllActive;
 
-                    // If global mark-all is active, ensure we record this id (and children) immediately
-                    if (window.markAllActive && checkbox.checked) {
-                        window.selectedItems.add(id);
-                        if (checkbox.dataset.hasChildren === "true") {
-                            // add all child IDs that are currently in DOM (future children rendered will also pick up markAllActive)
-                            const childCheckboxes = li.querySelectorAll('.result-checkbox');
-                            childCheckboxes.forEach(child => {
-                                window.selectedItems.add(child.dataset.id);
-                                child.checked = true;
-                            });
-                        }
-                    }
+                    // Maintain selected items + Mark All sync
+                    if (isChecked) window.selectedItems.add(id);
 
                     checkbox.onchange = () => {
-                        if (checkbox.checked) {
-                            window.selectedItems.add(id);
-                        } else {
-                            window.selectedItems.delete(id);
-                        }
+                        if (checkbox.checked) window.selectedItems.add(id);
+                        else window.selectedItems.delete(id);
 
                         if (checkbox.dataset.hasChildren === "true") {
-                            const childCheckboxes = li.querySelectorAll('.result-checkbox');
+                            const childCheckboxes = cardDiv.querySelectorAll('.result-checkbox');
                             childCheckboxes.forEach(child => {
                                 child.checked = checkbox.checked;
                                 const childId = child.dataset.id;
@@ -1274,12 +1714,8 @@
                             });
                         }
 
-                        // If user manually unchecks one checkbox while markAllActive was true,
-                        // consider marking markAllActive as false so future nodes are not auto-selected.
-                        // (Optional decision: below line disables global auto-select if user unchecks any checkbox)
                         if (window.markAllActive && !checkbox.checked) {
                             window.markAllActive = false;
-                            // update the Mark All checkbox UI if it exists
                             const markEl = document.getElementById('mark-all-checkbox');
                             if (markEl) { markEl.checked = false; markEl.indeterminate = false; }
                         }
@@ -1287,11 +1723,9 @@
                         updateMarkAllCheckbox();
                     };
 
+                    // ✅ Recursive children rendering, keeping card layout indentation
                     if (n.children && n.children.length > 0) {
-                        const ul = document.createElement("ul");
-                        ul.className = "list-group list-group-flush ms-4";
-                        li.appendChild(ul);
-                        n.children.forEach(child => renderNode(child, ul));
+                        n.children.forEach(child => renderNode(child, parentContainer, level + 1, uniqueId, 0));
                     }
                 }
 
@@ -1309,6 +1743,60 @@
                 // SSE connection
                 const evtSource = new EventSource(`${API_BASE_URL}/api/search-keywords/?q=${encodeURIComponent(keyword)}&limit=${depth}`);
 
+                stopBtn.onclick = () => {
+                    if (stopBtn.parentNode && stopBtn.parentNode.parentNode !== actionButtonsContainer) {
+                        const stopBtnWrapper = document.createElement('div');
+                        stopBtnWrapper.className = 'ms-2';
+                        stopBtnWrapper.appendChild(stopBtn);
+                        actionButtonsContainer.appendChild(stopBtnWrapper);
+                    }
+
+                    if (evtSource) {
+                        console.warn('⛔ Stopping search stream...');
+                        stopBtn.disabled = true;
+                        stopBtn.textContent = 'Stopping...';
+                        evtSource.close();
+
+                        // Reset UI properly
+                        setTimeout(() => {
+                            stopBtn.textContent = 'Stopped';
+                            stopBtn.disabled = false;
+                            stopBtn.style.display = 'none';
+                        }, 600);
+
+                        // Re-enable the Search button
+                        searchBtn.disabled = false;
+                        searchBtn.innerHTML = 'Search';
+
+                        // Remove the spinner and progress elements if they exist
+                        const loadingBlock = document.getElementById('loading-container');
+                        if (loadingBlock) loadingBlock.remove();
+                        const progressContainer = document.getElementById('progress-container');
+                        if (progressContainer) progressContainer.remove();
+                        
+                        // ✅ ADD THIS: Hide the streaming container and render paginated results
+                        treeContainerWrapper.style.display = 'none';
+                        actionButtonsContainer.style.display = 'none';
+                        
+                        // ✅ IMPORTANT: Clear any existing pagination first
+                        const existingPagination = document.getElementById('keyword-pagination');
+                        if (existingPagination) {
+                            existingPagination.remove();
+                        }
+                        
+                        // ✅ Render paginated results with collected data
+                        if (window.lastResults && window.lastResults.length > 0) {
+                            renderPaginatedResults(1);
+                        } else {
+                            resultsContainer.innerHTML = `
+                                <div class="alert alert-info mt-3">
+                                    Search was stopped. No results were collected.
+                                </div>
+                            `;
+                        }
+                    }
+                };
+
                 evtSource.addEventListener('meta', (e) => {
                     console.debug('SSE meta event raw data:', e.data);
                     try {
@@ -1322,7 +1810,6 @@
                         console.error('Failed to parse meta event', err, e.data);
                     }
                 });
-
 
                 evtSource.onmessage = function(event) {
                     try {
@@ -1347,7 +1834,18 @@
                         const node = data.node;
                         const progress = data.progress;
 
-                        if (actionButtonsContainer.style.display === 'none') actionButtonsContainer.style.display = 'flex';
+                        if (actionButtonsContainer.style.display === 'none') {
+                            actionButtonsContainer.style.display = 'flex';
+                            
+                            // Add Stop button to action buttons container
+                            if (!document.getElementById('stop-search-btn')) {
+                                const stopBtnWrapper = document.createElement('div');
+                                stopBtnWrapper.className = 'ms-2';
+                                stopBtnWrapper.appendChild(stopBtn);
+                                actionButtonsContainer.appendChild(stopBtnWrapper);
+                            }
+                            stopBtn.style.display = 'inline-block'; // Show it now
+                        }
 
                         if (progress && typeof progress.current !== 'undefined') {
                             const percent = progress.total ? Math.round((progress.current / progress.total) * 100) : 0;
@@ -1357,12 +1855,55 @@
 
                         window.lastResults.push(node);
                         renderNode(node, treeContainer);
+                        updateLinksCounter();
+
+                        // Start observing for DOM changes if not already observing
+                        if (!window.scrollObserverActive) {
+                            scrollObserver.observe(treeContainer, {
+                                childList: true,
+                                subtree: true,
+                                characterData: true
+                            });
+                            window.scrollObserverActive = true;
+                        }
+
+                        // Force immediate scroll for each new result
+                        if (autoScroll) {
+                            // Use multiple methods to ensure scrolling works
+                            setTimeout(() => {
+                                treeContainerWrapper.scrollTo({
+                                    top: treeContainerWrapper.scrollHeight,
+                                    behavior: 'instant'
+                                });
+                                
+                                // Backup method
+                                treeContainerWrapper.scrollTop = treeContainerWrapper.scrollHeight;
+                                
+                                // Another backup with different timing
+                                setTimeout(() => {
+                                    treeContainerWrapper.scrollTop = treeContainerWrapper.scrollHeight;
+                                }, 50);
+                            }, 10);
+                        }
+
+                        console.log('New result added. Scroll position:', {
+                            scrollTop: treeContainerWrapper.scrollTop,
+                            clientHeight: treeContainerWrapper.clientHeight,
+                            scrollHeight: treeContainerWrapper.scrollHeight,
+                            autoScroll: autoScroll,
+                            resultsCount: window.lastResults.length
+                        });
+
                     } catch (err) {
                         console.error("SSE parse error:", err, event.data);
                     }
                 };
 
                 evtSource.addEventListener("done", function(event) {
+                    // Hide stop button when done
+                    if (stopBtn) {
+                        stopBtn.style.display = 'none';
+                    }
                     try {
                         // sometimes servers put summary/meta into the done event
                         if (event.data) {
@@ -1420,8 +1961,28 @@
 
                 // Render paginated results
                 function renderPaginatedResults(page = 1) {
+                    // CLEAR ANY EXISTING PAGINATION
+                    const existingPagination = document.getElementById('keyword-pagination');
+                    if (existingPagination) {
+                        existingPagination.remove();
+                    }
+
+
                     const startIndex = (page - 1) * itemsPerPage;
                     const paginated = window.lastResults.slice(startIndex, startIndex + itemsPerPage);
+
+                    // CREATE PAGINATION CONTAINER IF IT DOESN'T EXIST
+                    let paginationContainer = document.getElementById('keyword-pagination');
+                    if (!paginationContainer) {
+                        paginationContainer = document.createElement('div');
+                        paginationContainer.id = 'keyword-pagination';
+                        paginationContainer.className = 'pagination-container mt-3';
+                        paginationContainer.innerHTML = `
+                            <nav aria-label="Keyword results pagination">
+                                <ul class="pagination keyword-pagination-list justify-content-center"></ul>
+                            </nav>
+                        `;
+                    }
 
                     // Use your existing renderResults to produce the HTML for the current page
                     const itemsHtml = renderResults(paginated, 0, null, startIndex);
@@ -1440,13 +2001,39 @@
                         actionButtons = document.createElement('div');
                         actionButtons.id = 'action-buttons-container';
                         actionButtons.className = 'd-flex align-items-center mt-5 mb-3 ms-2';
+
                         actionButtons.innerHTML = `
                             <div class="form-check me-5">
                                 <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
                                 <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
                             </div>
                             <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
+                            <div class="dropdown ms-2">
+                                <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-download"></i>
+                                    Export
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item export-btn" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> Export as CSV</a></li>
+                                    <li><a class="dropdown-item export-btn" href="#" data-format="excel"><i class="bi bi-file-earmark-excel"></i> Export as Excel</a></li>
+                                    <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
+                                </ul>
+                            </div>
+                            <div id="links-counter" class="ms-3 text-muted small">Links: ${window.lastResults.length}</div>
                         `;
+
+                        // Add export button event listeners for paginated view
+                        setTimeout(() => {
+                            const exportBtns = actionButtons.querySelectorAll('.export-btn');
+                            exportBtns.forEach(btn => {
+                                btn.addEventListener('click', function(e) {
+                                    e.preventDefault();
+                                    const format = this.getAttribute('data-format');
+                                    console.log('Export button clicked in paginated view:', format);
+                                    exportResults(format);
+                                });
+                            });
+                        }, 100);
                     }
 
                     const saveMessageContainer = resultsContainer.querySelector('#save-message-container');
@@ -1460,18 +2047,35 @@
 
                     // Restore checkbox states and wire onchange to update window.selectedItems
                     resultCheckboxesFinal.forEach(cb => {
-                        // If your checkboxes already have dataset.id as "path" (e.g. "0-2-1"), this will work.
-                        // If not, ensure renderResults uses path-based IDs or set them here appropriately.
-                        cb.checked = window.selectedItems.has(cb.dataset.id);
+                        // Check if markAllActive is true OR if item is already selected
+                        cb.checked = window.markAllActive || window.selectedItems.has(cb.dataset.id);
+                        
+                        // If markAllActive is true, ensure this item is in selectedItems
+                        if (window.markAllActive) {
+                            window.selectedItems.add(cb.dataset.id);
+                        }
 
                         cb.onchange = () => {
                             if (cb.checked) window.selectedItems.add(cb.dataset.id);
                             else window.selectedItems.delete(cb.dataset.id);
 
+                            // If any checkbox is unchecked, turn off markAllActive
+                            if (!cb.checked && window.markAllActive) {
+                                window.markAllActive = false;
+                                markAllCheckboxFinal.checked = false;
+                                markAllCheckboxFinal.indeterminate = false;
+                            }
+
                             // Keep mark all in sync for visible page
                             updateMarkAllCheckboxForCheckboxList(markAllCheckboxFinal, resultCheckboxesFinal);
                         };
                     });
+
+                    // Ensure mark all checkbox reflects the current state
+                    if (markAllCheckboxFinal) {
+                        markAllCheckboxFinal.checked = window.markAllActive;
+                        updateMarkAllCheckboxForCheckboxList(markAllCheckboxFinal, resultCheckboxesFinal);
+                    }
 
                     // Initialize mark-all state for the current page
                     updateMarkAllCheckboxForCheckboxList(markAllCheckboxFinal, resultCheckboxesFinal);
@@ -1487,8 +2091,15 @@
                     if (window.lastResults.length > itemsPerPage) {
                         const totalPages = Math.ceil(window.lastResults.length / itemsPerPage);
                         currentPage = page;
+                        
+                        // Make sure pagination container is added to DOM
+                        if (!paginationContainer.parentNode) {
+                            resultsContainer.appendChild(paginationContainer);
+                        }
+                        
                         renderPagination(totalPages, page);
                     }
+                    updateLinksCounter();
                 }
 
             } catch (e) {
@@ -1503,6 +2114,113 @@
 
 
         // Pagination click event handler
+        // document.addEventListener('click', function(e) {
+        //     if (e.target && e.target.classList.contains('page-link')) {
+        //         e.preventDefault();
+        //         const targetPage = parseInt(e.target.dataset.page);
+                
+        //         if (!isNaN(targetPage) && targetPage !== currentPage) {
+        //             currentPage = targetPage;
+        //             paginatedResults = paginateResults(window.lastResults, currentPage, itemsPerPage);
+                    
+        //             // Re-render results (replace content, not append)
+        //             // const itemsHtml = renderResults(paginatedResults);
+        //             const startIndex = (currentPage - 1) * itemsPerPage; // ADDED
+        //             const itemsHtml = renderResults(paginatedResults, 0, null, startIndex); // CHANGED
+
+        //             document.getElementById('results-content').innerHTML = itemsHtml || '<p>No results.</p>';
+
+        //             // Reinitialize checkbox functionality
+        //             // Reinitialize checkbox functionality
+        //             const resultCheckboxes = document.querySelectorAll('.result-checkbox');
+        //             resultCheckboxes.forEach(checkbox => {
+        //                 // ADD: Set checked state from global tracker
+        //                 checkbox.checked = selectedItems.has(checkbox.dataset.id);
+                        
+        //                 checkbox.onchange = () => {
+        //                     const itemId = checkbox.dataset.id;
+                            
+        //                     // ADD: Update global selection tracker
+        //                     if (checkbox.checked) {
+        //                         selectedItems.add(itemId);
+        //                     } else {
+        //                         selectedItems.delete(itemId);
+        //                     }
+                            
+        //                     if (checkbox.dataset.hasChildren === "true") {
+        //                         const childCheckboxes = getChildCheckboxes(checkbox.dataset.id);
+        //                         childCheckboxes.forEach(child => {
+        //                             child.checked = checkbox.checked;
+        //                             // ADD: Update global selection for children too
+        //                             if (checkbox.checked) {
+        //                                 selectedItems.add(child.dataset.id);
+        //                             } else {
+        //                                 selectedItems.delete(child.dataset.id);
+        //                             }
+        //                         });
+        //                     } else {
+        //                         if (checkbox.checked) {
+        //                             updateParentState(checkbox);
+        //                         }
+        //                     }
+                            
+        //                     // Update Mark All checkbox state
+        //                     const markAllCheckbox = document.getElementById('mark-all-checkbox');
+        //                     const allChecked = Array.from(resultCheckboxes).every(cb => cb.checked);
+        //                     const someChecked = Array.from(resultCheckboxes).some(cb => cb.checked);
+                            
+        //                     if (markAllCheckbox) {
+        //                         markAllCheckbox.checked = allChecked;
+        //                         markAllCheckbox.indeterminate = someChecked && !allChecked;
+        //                     }
+        //                 };
+        //             });
+                    
+        //             // Re-add Mark All functionality
+        //             const markAllCheckbox = document.getElementById('mark-all-checkbox');
+        //             if (markAllCheckbox) {
+        //                 // Check if ALL items across ALL pages are selected
+        //                 const allResultIds = getAllResultIds(window.lastResults);
+        //                 const allSelected = allResultIds.every(id => selectedItems.has(id));
+        //                 const someSelected = allResultIds.some(id => selectedItems.has(id));
+                        
+        //                 markAllCheckbox.checked = allSelected;
+        //                 markAllCheckbox.indeterminate = someSelected && !allSelected;
+                        
+        //                 markAllCheckbox.onchange = (e) => {
+        //                     const isChecked = e.target.checked;
+                            
+        //                     // Get ALL results (not just current page)
+        //                     const allResultIds = getAllResultIds(window.lastResults);
+                            
+        //                     if (isChecked) {
+        //                         // Add all IDs to selected items
+        //                         allResultIds.forEach(id => selectedItems.add(id));
+        //                     } else {
+        //                         // Remove all IDs from selected items
+        //                         allResultIds.forEach(id => selectedItems.delete(id));
+        //                     }
+                            
+        //                     // Update checkboxes on current page
+        //                     resultCheckboxes.forEach(checkbox => {
+        //                         checkbox.checked = isChecked;
+        //                         checkbox.indeterminate = false;
+        //                     });
+        //                 };
+        //             }
+                    
+        //             // Update pagination controls
+        //             const totalPages = Math.ceil(window.lastResults.length / itemsPerPage);
+        //             renderPagination(totalPages, currentPage);
+                    
+        //             // Scroll to top of results
+        //             resultsContainer.scrollIntoView({ behavior: 'smooth' });
+        //         }
+        //     }
+        // });
+
+
+
         document.addEventListener('click', function(e) {
             if (e.target && e.target.classList.contains('page-link')) {
                 e.preventDefault();
@@ -1510,26 +2228,37 @@
                 
                 if (!isNaN(targetPage) && targetPage !== currentPage) {
                     currentPage = targetPage;
-                    paginatedResults = paginateResults(window.lastResults, currentPage, itemsPerPage);
                     
-                    // Re-render results (replace content, not append)
-                    // const itemsHtml = renderResults(paginatedResults);
-                    const startIndex = (currentPage - 1) * itemsPerPage; // ADDED
-                    const itemsHtml = renderResults(paginatedResults, 0, null, startIndex); // CHANGED
-
+                    // For bulk search, use the existing renderBulkPaginatedResults function
+                    if (window.bulkResults && Object.keys(window.bulkResults).length > 0) {
+                        // This is a bulk search - use the bulk pagination function
+                        renderBulkPaginatedResults(currentPage);
+                        return;
+                    }
+                    
+                    // For single search, use the original approach
+                    if (!window.lastResults || !Array.isArray(window.lastResults)) {
+                        console.warn('No search results available for pagination');
+                        document.getElementById('results-content').innerHTML = '<p class="text-warning">No search results available. Please run a search first.</p>';
+                        return;
+                    }
+                    
+                    // Original single search pagination code
+                    const startIndex = (currentPage - 1) * itemsPerPage;
+                    const endIndex = startIndex + itemsPerPage;
+                    const paginatedResults = window.lastResults.slice(startIndex, endIndex);
+                    
+                    const itemsHtml = renderResults(paginatedResults, 0, null, startIndex);
                     document.getElementById('results-content').innerHTML = itemsHtml || '<p>No results.</p>';
 
-                    // Reinitialize checkbox functionality
-                    // Reinitialize checkbox functionality
+                    // Reinitialize checkbox functionality for single search
                     const resultCheckboxes = document.querySelectorAll('.result-checkbox');
                     resultCheckboxes.forEach(checkbox => {
-                        // ADD: Set checked state from global tracker
                         checkbox.checked = selectedItems.has(checkbox.dataset.id);
                         
                         checkbox.onchange = () => {
                             const itemId = checkbox.dataset.id;
                             
-                            // ADD: Update global selection tracker
                             if (checkbox.checked) {
                                 selectedItems.add(itemId);
                             } else {
@@ -1540,7 +2269,6 @@
                                 const childCheckboxes = getChildCheckboxes(checkbox.dataset.id);
                                 childCheckboxes.forEach(child => {
                                     child.checked = checkbox.checked;
-                                    // ADD: Update global selection for children too
                                     if (checkbox.checked) {
                                         selectedItems.add(child.dataset.id);
                                     } else {
@@ -1553,7 +2281,6 @@
                                 }
                             }
                             
-                            // Update Mark All checkbox state
                             const markAllCheckbox = document.getElementById('mark-all-checkbox');
                             const allChecked = Array.from(resultCheckboxes).every(cb => cb.checked);
                             const someChecked = Array.from(resultCheckboxes).some(cb => cb.checked);
@@ -1565,10 +2292,9 @@
                         };
                     });
                     
-                    // Re-add Mark All functionality
+                    // Re-add Mark All functionality for single search
                     const markAllCheckbox = document.getElementById('mark-all-checkbox');
                     if (markAllCheckbox) {
-                        // Check if ALL items across ALL pages are selected
                         const allResultIds = getAllResultIds(window.lastResults);
                         const allSelected = allResultIds.every(id => selectedItems.has(id));
                         const someSelected = allResultIds.some(id => selectedItems.has(id));
@@ -1578,19 +2304,14 @@
                         
                         markAllCheckbox.onchange = (e) => {
                             const isChecked = e.target.checked;
-                            
-                            // Get ALL results (not just current page)
                             const allResultIds = getAllResultIds(window.lastResults);
                             
                             if (isChecked) {
-                                // Add all IDs to selected items
                                 allResultIds.forEach(id => selectedItems.add(id));
                             } else {
-                                // Remove all IDs from selected items
                                 allResultIds.forEach(id => selectedItems.delete(id));
                             }
                             
-                            // Update checkboxes on current page
                             resultCheckboxes.forEach(checkbox => {
                                 checkbox.checked = isChecked;
                                 checkbox.indeterminate = false;
@@ -1607,6 +2328,190 @@
                 }
             }
         });
+
+
+        // Export functionality starts
+        function exportResults(format) {
+            // Get the current results based on whether it's single or bulk search
+            let results = [];
+            let filename = '';
+
+            if (window.bulkResults && Object.keys(window.bulkResults).length > 0) {
+                // Bulk search results
+                filename = 'bulk_search_results';
+                Object.entries(window.bulkResults).forEach(([keyword, keywordResults]) => {
+                    keywordResults.forEach(result => {
+                        results.push({
+                            keyword: keyword,
+                            title: result.title || '',
+                            url: result.url || '',
+                            depth: getResultDepth(result)
+                        });
+                    });
+                });
+            } else if (window.lastResults && window.lastResults.length > 0) {
+                // Single search results
+                let keywordText = '';
+                
+                // Handle different cases for keyword
+                if (typeof window.currentKeyword === 'string') {
+                    keywordText = window.currentKeyword;
+                } else if (window.currentKeyword && window.currentKeyword.word) {
+                    keywordText = window.currentKeyword.word;
+                } else if (keywordInput && keywordInput.value) {
+                    keywordText = keywordInput.value;
+                } else {
+                    keywordText = 'search';
+                }
+                
+                filename = `search_results_${keywordText.replace(/\s+/g, '_')}`;
+                results = flattenResults(window.lastResults, keywordText);
+            } else {
+                alert('No results to export');
+                return;
+            }
+
+            if (results.length === 0) {
+                alert('No results to export');
+                return;
+            }
+
+            switch (format) {
+                case 'csv':
+                    exportToCsv(results, filename);
+                    break;
+                case 'excel':
+                    exportToExcel(results, filename);
+                    break;
+                case 'pdf':
+                    exportToPdf(results, filename);
+                    break;
+            }
+        }
+
+        // Helper function to flatten nested results
+        function flattenResults(results, parentKeyword = '') {
+            const flattened = [];
+            
+            results.forEach((result) => {
+                flattened.push({
+                    keyword: parentKeyword,
+                    title: result.title || '',
+                    url: result.url || '',
+                    depth: getResultDepth(result)
+                });
+
+                if (result.children && result.children.length > 0) {
+                    flattened.push(...flattenResults(result.children, parentKeyword));
+                }
+            });
+            
+            return flattened;
+        }
+
+        // Helper function to calculate result depth
+        function getResultDepth(result) {
+            if (!result.children || result.children.length === 0) return 1;
+            return 1 + Math.max(...result.children.map(child => getResultDepth(child)));
+        }
+
+        // CSV Export
+        function exportToCsv(data, filename) {
+            const headers = ['Keyword', 'Title', 'URL', 'Depth'];
+            const csvContent = [
+                headers.join(','),
+                ...data.map(row => [
+                    `"${(row.keyword || '').replace(/"/g, '""')}"`,
+                    `"${(row.title || '').replace(/"/g, '""')}"`,
+                    `"${(row.url || '').replace(/"/g, '""')}"`,
+                    row.depth || 1
+                ].join(','))
+            ].join('\n');
+
+            downloadFile(csvContent, `${filename}.csv`, 'text/csv');
+        }
+
+        // Excel Export (using CSV with .xlsx extension for simplicity)
+        function exportToExcel(data, filename) {
+            // For a proper Excel export, you might want to use a library like SheetJS
+            // This is a simplified version using CSV
+            exportToCsv(data, `${filename}.xlsx`);
+        }
+
+        // PDF Export
+        function exportToPdf(data, filename) {
+            // For PDF export, you can use jsPDF library
+            if (typeof jspdf === 'undefined') {
+                // Load jsPDF dynamically
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+                script.onload = () => generatePdf(data, filename);
+                document.head.appendChild(script);
+            } else {
+                generatePdf(data, filename);
+            }
+        }
+
+        function generatePdf(data, filename) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            let yPosition = 20;
+            const pageHeight = doc.internal.pageSize.height;
+            const lineHeight = 10;
+            
+            // Title
+            doc.setFontSize(16);
+            doc.text('Search Results Export', 20, yPosition);
+            yPosition += 20;
+            
+            // Table headers
+            doc.setFontSize(10);
+            doc.setFont(undefined, 'bold');
+            doc.text('Keyword', 20, yPosition);
+            doc.text('Title', 60, yPosition);
+            doc.text('URL', 120, yPosition);
+            doc.text('Depth', 180, yPosition);
+            yPosition += lineHeight;
+            
+            // Table content
+            doc.setFont(undefined, 'normal');
+            data.forEach((row) => {
+                // Check if we need a new page
+                if (yPosition > pageHeight - 20) {
+                    doc.addPage();
+                    yPosition = 20;
+                }
+                
+                // Truncate long text
+                const keyword = (row.keyword || '').substring(0, 30);
+                const title = (row.title || '').substring(0, 40);
+                const url = (row.url || '').substring(0, 50);
+                
+                doc.text(keyword, 20, yPosition);
+                doc.text(title, 60, yPosition);
+                doc.text(url, 120, yPosition);
+                doc.text(String(row.depth || 1), 180, yPosition);
+                
+                yPosition += lineHeight;
+            });
+            
+            doc.save(`${filename}.pdf`);
+        }
+
+        // Generic download function
+        function downloadFile(content, filename, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+        // Export fucnctionality ends
     }
 
     return { init };

@@ -20,7 +20,8 @@ urlpatterns = [
     path('save-keyword-results/', views.save_keyword_results, name='save_keyword_results'),
     path('keywords-list/', views.keywords_list, name='keywords_list'),
     path("delete-folders/", views.delete_folders, name="delete_folders"),
-    path("bulk-keywords-search/", views.bulk_keywords_search, name="bulk_keywords_search"),
+    path("bulk-keywords-search/", views.bulk_keywords_search_stream, name="bulk_keywords_search_stream"),
+    path("save-bulk-keyword-results/", views.save_bulk_keyword_results, name="save_bulk_keyword_results"),
     # keyword search and parse ends
     
     # Projects starts
@@ -38,6 +39,13 @@ urlpatterns = [
     path('folder/<int:folder_id>/keyword-results/', views.folder_details, name='folder_details'),
     path("folder/<int:folder_id>/delete-folder-results/", views.delete_folder_results, name="delete_folder_results"),
     # Project folder ends
+
+    #Link
+    # path('search-url/', views.search_url, name='search_url'),
+    # path('save-url-results/', views.save_url_results, name='save_url_results'),
+    path('start-url-crawl/', views.start_url_crawl, name='start_url_crawl'),
+    path('get-crawl-results/', views.get_crawl_results, name='get_crawl_results'),
+    path('stop-crawl/', views.stop_crawl, name='stop_crawl'),
     
     # token authentication
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

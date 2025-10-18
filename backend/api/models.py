@@ -217,6 +217,9 @@ class SearchResultLink(models.Model):
     phone_number = models.CharField(max_length=50, blank=True, null=True)
     metadata = models.JSONField(blank=True, null=True, help_text="Any additional extracted data")
     crawled_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = (('keyword', 'folder', 'url'),)
 
     def __str__(self):
         return f"{self.title or self.url}"

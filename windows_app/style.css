@@ -1420,3 +1420,27 @@ body {
     color: #a0aec0;
 }
 /* Keyword pagination styles ends */
+
+
+/* Card stream design starts */
+.card-stream {
+  opacity: 0;
+  animation: fadeIn 0.4s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Card stream design ends */
+
+/* Stops the crawling button in keywords.js starts */
+#results-tree-container {
+  max-height: 70vh; /* adjust as you like */
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 8px;
+  scroll-behavior: smooth;
+}
+/* Stops the crawling button in keywords.js ends */

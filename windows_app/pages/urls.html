@@ -1,0 +1,117 @@
+<!-- resources/views/pages/urls.blade.php -->
+<div class="urls-page py-4 px-3">
+    <h2 class="text-center mb-4">Advanced URL Crawler</h2>
+
+
+
+    <!-- URL search input -->
+    <div class="d-flex justify-content-center mb-3">
+        <div class="input-group w-50">
+            <input id="url-input" type="text" class="form-control" placeholder="Enter URL (e.g., https://example.com)">
+            <input id="url-depth-input" type="number" class="form-control" value="2" min="1" max="5" placeholder="Depth" title="Crawling depth" hidden>
+            <button id="search-url-btn" class="btn btn-primary">
+                <i class="bi bi-link-45deg"></i> Start Crawling
+            </button>
+        </div>
+    </div>
+
+    <!-- Save message container -->
+    <div id="save-message-container" class="mb-3"></div>
+
+    <!-- Results container -->
+    <div id="results-container" class="mb-3">
+        <div class="text-center text-muted">
+            <p>Enter a URL and click "Start Crawling" to begin</p>
+            <small class="text-muted">The crawler will follow internal links up to the specified depth</small>
+        </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="d-flex justify-content-center align-items-center mb-3" id="action-buttons-container" style="display:none;">
+        <div class="form-check me-3">
+            <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
+            <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
+        </div>
+        <button id="save-selected-btn" class="btn btn-success btn-sm">Save Selected</button>
+    </div>
+
+    <!-- Pagination -->
+    <div id="url-pagination" class="url-pagination mt-3 d-none">
+        <nav aria-label="URL search results pagination">
+            <ul class="pagination justify-content-center url-pagination-list">
+                <!-- Pagination buttons dynamically inserted here -->
+            </ul>
+        </nav>
+    </div>
+</div>
+
+<!-- Save panel (slide-in) -->
+<div id="save-panel" class="save-panel">
+    <div class="save-panel-content p-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5>Save Selected Links</h5>
+            <button id="close-save-panel" class="btn-close"></button>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Select Project</label>
+            <select id="save-project-select" class="form-select">
+                <option value="">Select a Project</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Select Folder (Optional)</label>
+            <select id="save-folder-select" class="form-select" disabled>
+                <option value="">Select a Folder</option>
+            </select>
+        </div>
+
+        <button id="confirm-save-btn" class="btn btn-primary w-100">Save</button>
+    </div>
+</div>
+
+<!-- Overlay -->
+<div id="save-panel-overlay" class="save-panel-overlay"></div>
+
+<!-- Styles -->
+<style>
+.save-panel {
+    position: fixed;
+    top: 0;
+    right: -400px;
+    width: 400px;
+    height: 100%;
+    background: #fff;
+    border-left: 1px solid #ddd;
+    z-index: 1050;
+    transition: right 0.3s ease-in-out;
+    overflow-y: auto;
+    box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+}
+.save-panel.show {
+    right: 0;
+}
+.save-panel-overlay {
+    display: none;
+    position: fixed;
+    top:0; left:0; right:0; bottom:0;
+    background: rgba(0,0,0,0.5);
+    z-index:1040;
+}
+.save-panel-overlay.show {
+    display: block;
+}
+.realtime-status .alert {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+}
+.progress {
+    height: 25px;
+}
+.progress-bar {
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+</style>
