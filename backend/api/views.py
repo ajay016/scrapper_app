@@ -14,6 +14,7 @@ from django.core.exceptions import MultipleObjectsReturned
 from django.db import transaction
 from django.db.utils import IntegrityError
 from bs4 import BeautifulSoup
+
 import traceback
 import logging
 import json
@@ -24,8 +25,6 @@ import requests
 from .utils.parser import parse_page, save_page_hierarchy
 from .serializers import *
 from .models import *
-import requests
-from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -159,7 +158,7 @@ def search_and_parse_stream(request):
         keyword_serialized = {"id": keyword_obj.id, "word": keyword_obj.word}
 
     def parse_to_dict(data, depth=0):
-        if not data or not data.get("url"):
+        if not isinstance(data, dict) or not data.get("url"):
             return None
         node = {"url": data["url"], "title": data.get("title"), "depth": depth, "children": []}
         for child in data.get("children", []):
@@ -170,74 +169,77 @@ def search_and_parse_stream(request):
 
     def event_stream():
         yield f"event: meta\ndata: {json.dumps({'keyword': keyword_serialized})}\n\n"
+        try:
+            generator = (
+                scrape_bing_results(keyword_stripped, num_results=limit)
+                if engine == "bing"
+                else scrape_duckduckgo_results(keyword_stripped, num_results=limit, stop_flag=GLOBAL_STOP_FLAG)
+            )
 
-        generator = (
-            scrape_bing_results(keyword_stripped, num_results=limit)
-            if engine == "bing"
-            else scrape_duckduckgo_results(keyword_stripped, num_results=limit, stop_flag=GLOBAL_STOP_FLAG)
-        )
+            idx = 0
+            filtered_count = 0
 
-        idx = 0
-        filtered_count = 0
-        
-        for href in generator:
-            # 🛑 Immediately stop if global stop is triggered
-            if GLOBAL_STOP_FLAG.is_set():
-                print("⛔ Global stop detected — aborting search and closing browser.")
-                break
+            for href in generator:
+                # 🛑 Immediately stop if global stop is triggered
+                if GLOBAL_STOP_FLAG.is_set():
+                    print("⛔ Global stop detected — aborting search and closing browser.")
+                    break
 
-            # Apply filters using your existing function
-            if not apply_filters(href, filters):
-                filtered_count += 1
-                continue
+                # Apply filters using your existing function
+                if not apply_filters(href, filters):
+                    filtered_count += 1
+                    continue
 
-            idx += 1
-            try:
-                parsed_data = parse_page(href, current_depth=0, max_depth=max_depth)
-                
-                # Apply filters to children as well
-                if parsed_data and 'children' in parsed_data:
-                    parsed_data['children'] = [
-                        child for child in parsed_data['children'] 
-                        if child.get('url') and apply_filters(child.get('url'), filters)
-                    ]
-                
-                node = parse_to_dict(parsed_data)
-            except Exception as e:
-                print("⚠️ parse_page error for", href, e)
-                node = {"url": href, "title": None, "depth": 0, "children": []}
+                idx += 1
+                try:
+                    parsed_data = parse_page(href, current_depth=0, max_depth=max_depth)
 
-            payload = {
-                "keyword_id": keyword_obj.id,
-                "node": node,
-                "progress": {"current": idx, "total": limit or None},
-                "filters_applied": {
-                    "url_include": bool(filters["url_include"]),
-                    "url_exclude": bool(filters["url_exclude"]),
-                    "domain_filter": bool(filters["domain_filter"]),
-                    "language_filter": bool(filters["language_filter"]),
-                    "file_type_filter": bool(filters["file_type_filter"]),
-                    "filtered_count": filtered_count
+                    # Apply filters to children as well
+                    if parsed_data and 'children' in parsed_data:
+                        parsed_data['children'] = [
+                            child for child in parsed_data['children']
+                            if child.get('url') and apply_filters(child.get('url'), filters)
+                        ]
+
+                    node = parse_to_dict(parsed_data)
+                except Exception as e:
+                    print("⚠️ parse_page error for", href, e)
+                    node = {"url": href, "title": None, "depth": 0, "children": []}
+
+                payload = {
+                    "keyword_id": keyword_obj.id,
+                    "node": node,
+                    "progress": {"current": idx, "total": limit or None},
+                    "filters_applied": {
+                        "url_include": bool(filters["url_include"]),
+                        "url_exclude": bool(filters["url_exclude"]),
+                        "domain_filter": bool(filters["domain_filter"]),
+                        "language_filter": bool(filters["language_filter"]),
+                        "file_type_filter": bool(filters["file_type_filter"]),
+                        "filtered_count": filtered_count
+                    }
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+                time.sleep(0.02)
+
+            # FIXED: Use a variable for the done event data
+            done_data = {
+                'message': 'Search finished',
+                'total_received': idx,
+                'total_filtered': filtered_count,
+                'filters_applied': {
+                    'url_include': bool(filters["url_include"]),
+                    'url_exclude': bool(filters["url_exclude"]),
+                    'domain_filter': bool(filters["domain_filter"]),
+                    'language_filter': bool(filters["language_filter"]),
+                    'file_type_filter': bool(filters["file_type_filter"]),
+                    'filtered_count': filtered_count
                 }
             }
-            yield f"data: {json.dumps(payload)}\n\n"
-            time.sleep(0.02)
+            yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
 
-        # FIXED: Use a variable for the done event data
-        done_data = {
-            'message': 'Search finished', 
-            'total_received': idx,
-            'total_filtered': filtered_count,
-            'filters_applied': {
-                'url_include': bool(filters["url_include"]),
-                'url_exclude': bool(filters["url_exclude"]),
-                'domain_filter': bool(filters["domain_filter"]),
-                'language_filter': bool(filters["language_filter"]),
-                'file_type_filter': bool(filters["file_type_filter"]),
-                'filtered_count': filtered_count
-            }
-        }
-        yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
+        finally:
+            GLOBAL_STOP_FLAG.clear()
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
