@@ -9,8 +9,6 @@ from playwright.sync_api import sync_playwright
 from .playwright_wrapper import playwright_browser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
-import asyncio
-from playwright.async_api import async_playwright
 import random
 from math import ceil
 import re
@@ -45,149 +43,113 @@ def resolve_bing_ck_url(href):
         pass
     return href
 
-# def scrape_bing_results(query, num_results=None):
-#     collected = set()
-
-#     with sync_playwright() as p:
-#         browser = p.chromium.launch(headless=False)
-#         context = browser.new_context(
-#             viewport={"width": 1280, "height": 800},
-#             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-#             locale="en-US",
-#             timezone_id="America/New_York",
-#             java_script_enabled=True
-#         )
-#         page = context.new_page()
-
-#         # Stealth patch (minimal manual)
-#         page.add_init_script("""
-#             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-#             Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
-#             Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-#         """)
-
-#         page.goto(f"https://www.bing.com/search?q={query}")
-#         time.sleep(random.uniform(2, 4))
-
-#         while True:
-#             content = page.content()
-#             if "unusual traffic" in content.lower() or "verify your identity" in content.lower():
-#                 print("⚠️ CAPTCHA detected! Manual solve or fallback required.")
-#                 break
-
-#             try:
-#                 page.wait_for_selector("li.b_algo", timeout=15000, state="attached")
-#             except:
-#                 print("⚠️ No results found or page blocked")
-#                 break
-
-#             # Scroll like human
-#             for _ in range(random.randint(2, 5)):
-#                 page.mouse.wheel(0, random.randint(100, 300))
-#                 time.sleep(random.uniform(0.3, 0.8))
-
-#             links = page.query_selector_all("li.b_algo h2 a")
-#             new_links = 0
-#             for a in links:
-#                 href = a.get_attribute("href")
-#                 resolved = resolve_bing_ck_url(href) if "bing.com/ck/a" in href else href
-#                 if resolved.startswith("http") and resolved not in collected:
-#                     collected.add(resolved)
-#                     new_links += 1
-#                     yield resolved
-#                     if num_results and len(collected) >= num_results:
-#                         browser.close()
-#                         return
-
-#             if new_links == 0:
-#                 break
-
-#             # Next page click with human-like movement
-#             next_button = page.query_selector("a.sb_pagN")
-#             if not next_button:
-#                 break
-#             box = next_button.bounding_box()
-#             if box:
-#                 page.mouse.move(box["x"] + box["width"]/2, box["y"] + box["height"]/2, steps=random.randint(5,15))
-#                 time.sleep(random.uniform(0.2, 0.5))
-#                 next_button.click()
-#                 page.wait_for_load_state("networkidle")
-#                 time.sleep(random.uniform(1.5, 3.0))
-
-#         browser.close()
-
-
-
-async def scrape_bing_results(query, num_results=None):
+def scrape_bing_results(query, num_results=None):
     collected = set()
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        context = await browser.new_context(
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        context = browser.new_context(
             viewport={"width": 1280, "height": 800},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
             locale="en-US",
             timezone_id="America/New_York",
             java_script_enabled=True
         )
-        page = await context.new_page()
+        page = context.new_page()
 
         # Stealth patch (minimal manual)
-        await page.add_init_script("""
+        page.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
             Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
         """)
 
-        await page.goto(f"https://www.bing.com/search?q={query}")
-        await asyncio.sleep(random.uniform(2, 4))
+        page.goto(f"https://www.bing.com/search?q={query}")
+        time.sleep(random.uniform(2, 4))
 
         while True:
-            content = await page.content()
+            content = page.content()
             if "unusual traffic" in content.lower() or "verify your identity" in content.lower():
                 print("⚠️ CAPTCHA detected! Manual solve or fallback required.")
                 break
 
             try:
-                await page.wait_for_selector("li.b_algo", timeout=15000, state="attached")
+                page.wait_for_selector("li.b_algo", timeout=15000, state="attached")
             except:
                 print("⚠️ No results found or page blocked")
                 break
 
             # Scroll like human
             for _ in range(random.randint(2, 5)):
-                await page.mouse.wheel(0, random.randint(100, 300))
-                await asyncio.sleep(random.uniform(0.3, 0.8))
+                page.mouse.wheel(0, random.randint(100, 300))
+                time.sleep(random.uniform(0.3, 0.8))
 
-            links = await page.query_selector_all("li.b_algo h2 a")
+            links = page.query_selector_all("li.b_algo h2 a")
             new_links = 0
             for a in links:
-                href = await a.get_attribute("href")
+                href = a.get_attribute("href")
                 resolved = resolve_bing_ck_url(href) if "bing.com/ck/a" in href else href
                 if resolved.startswith("http") and resolved not in collected:
                     collected.add(resolved)
                     new_links += 1
                     yield resolved
                     if num_results and len(collected) >= num_results:
-                        await browser.close()
+                        browser.close()
                         return
 
             if new_links == 0:
                 break
 
             # Next page click with human-like movement
-            next_button = await page.query_selector("a.sb_pagN")
+            next_button = page.query_selector("a.sb_pagN")
             if not next_button:
                 break
-            box = await next_button.bounding_box()
+            box = next_button.bounding_box()
             if box:
-                await page.mouse.move(box["x"] + box["width"]/2, box["y"] + box["height"]/2, steps=random.randint(5,15))
-                await asyncio.sleep(random.uniform(0.2, 0.5))
-                await next_button.click()
-                await page.wait_for_load_state("networkidle")
-                await asyncio.sleep(random.uniform(1.5, 3.0))
+                page.mouse.move(box["x"] + box["width"]/2, box["y"] + box["height"]/2, steps=random.randint(5,15))
+                time.sleep(random.uniform(0.2, 0.5))
+                next_button.click()
+                page.wait_for_load_state("networkidle")
+                time.sleep(random.uniform(1.5, 3.0))
 
-        await browser.close()
+        browser.close()
+
+
+# ---------- Scraper: DuckDuckGo (Playwright fallback) ----------
+# def scrape_duckduckgo_results(query, num_results=50):
+#     try:
+#         with playwright_browser(headless=False, args=["--disable-blink-features=AutomationControlled"]) as browser:
+#             page = browser.new_page(viewport={"width": 1280, "height": 800})
+#             page.goto(f"https://duckduckgo.com/?q={query}&ia=web", timeout=60000)
+#             page.wait_for_selector("a[data-testid='result-title-a']", timeout=15000)
+
+#             collected = set()
+#             while True:
+#                 links = page.locator("a[data-testid='result-title-a']")
+#                 count = links.count()
+#                 for i in range(count):
+#                     href = links.nth(i).get_attribute("href")
+#                     if href and href not in collected:
+#                         collected.add(href)
+#                         yield href
+#                         if len(collected) >= num_results:
+#                             break
+#                 if len(collected) >= num_results:
+#                     break
+
+#                 more_button = page.locator("#more-results")
+#                 if more_button.count() > 0:
+#                     more_button.scroll_into_view_if_needed()
+#                     more_button.click()
+#                     page.wait_for_timeout(1000)
+#                 else:
+#                     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+#                     page.wait_for_timeout(1000)
+#                     new_count = page.locator("a[data-testid='result-title-a']").count()
+#                     if new_count <= count:
+#                         break
+#     except Exception as e:
+#         print("DuckDuckGo scrape error:", e)
 
 
 def scrape_duckduckgo_results(query, num_results=None, stop_flag=None):
