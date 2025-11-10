@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from datetime import timedelta
 import environ
+import sys
 import os
 
 
@@ -167,4 +168,30 @@ CORS_ALLOWED_ORIGINS = [
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=10*24*60), # Sets lifetime to 60 minutes
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),    # The default for the refresh token
+}
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {"format": "[{asctime}] {levelname} {name}: {message}", "style": "{"},
+        "simple": {"format": "{levelname} {message}", "style": "{"},
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": sys.stdout,
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "DEBUG",  # or INFO if too noisy
+    },
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "ERROR", "propagate": True},
+        "gunicorn.error": {"handlers": ["console"], "level": "ERROR", "propagate": True},
+        "gunicorn.access": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
 }
