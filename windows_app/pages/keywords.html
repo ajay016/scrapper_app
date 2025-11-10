@@ -3,12 +3,13 @@
     <h2 class="text-center">Search With Keywords</h2>
 
     <div class="row">
-        <!-- ADDED: Project and Folder selection -->
+        <!-- Left Column: Search and File Upload -->
         <div class="col-12 col-md-6">
-            <div class="search-section">
-                <div class="mb-3">  <!-- Removed d-flex and justify-content-center -->
-                    <div class="row">  <!-- Removed w-50 -->
-                        <div class="col-12">  <!-- Changed from col-md-6 to col-12 -->
+            <!-- Search Section -->
+            <div class="search-section mb-5">
+                <div class="mb-3">
+                    <div class="row">
+                        <div class="col-12">
                             <label class="form-label">Project</label>
                             <select id="project-select" class="form-select">
                                 <option value="">Select Project</option>
@@ -17,8 +18,8 @@
                     </div>
                 </div>
 
-                <div class="search-keyword-div">  <!-- Removed d-flex, justify-content-center, and input-group -->
-                    <div class="row g-2">  <!-- Added row with gutter spacing -->
+                <div class="search-keyword-div">
+                    <div class="row g-2">
                         <div class="col-12 col-md-6">
                             <input id="keyword-input" type="text" class="form-control" placeholder="Enter keyword...">
                         </div>
@@ -33,30 +34,26 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="col-12 col-md-6 mb-4 mb-md-0">
-            <div class="file-upload-section mb-4">
-                <div class="card border-0 shadow-sm">  <!-- Changed shadow-lg to shadow-sm -->
-                    <div class="card-body p-3">  <!-- Reduced padding from p-4 to p-3 -->
-                        <div class="text-center mb-3">  <!-- Reduced margin from mb-4 to mb-3 -->
-                            <i class="bi bi-cloud-upload fs-2 text-primary mb-2"></i>  <!-- Reduced from display-4 to fs-2 -->
-                            <h6 class="card-title fw-bold mb-1">Upload Keywords File</h6>  <!-- Changed from h5 to h6 -->
-                            <p class="text-muted small">Upload a text file with one keyword per line</p>  <!-- Added small class -->
+            <!-- File Upload Section (moved below search) -->
+            <div class="file-upload-section mb-4 mb-md-0">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body p-3">
+                        <div class="text-center mb-3">
+                            <i class="bi bi-cloud-upload fs-2 text-primary mb-2"></i>
+                            <h6 class="card-title fw-bold mb-1">Upload Keywords File</h6>
+                            <p class="text-muted small">Upload a text file with one keyword per line</p>
                         </div>
                         
                         <div>
                             <div class="d-flex justify-content-center">
                                 <div class="col-12 col-md-8 col-lg-6">
                                     <div class="file-input-wrapper">
-                                        <div class="input-group input-group-sm">  <!-- Added input-group-sm -->
-                                            <input type="file" class="form-control form-control-sm" id="keywords-file" accept=".txt">  <!-- form-control-sm -->
+                                        <div class="input-group input-group-sm">
+                                            <input type="file" class="form-control form-control-sm" id="keywords-file" accept=".txt">
                                         </div>
 
                                         <div class="bulk-search-section">
-                                            <!-- File input and other elements -->
-                                            
-                                            <!-- ADD: Bulk limit input field -->
                                             <div class="my-3">
                                                 <input type="number" id="bulk-limit-input" class="form-control" value="" min="0" 
                                                     name="bulk_limit" placeholder="Enter limit for number of results">
@@ -69,22 +66,103 @@
                                             </button>
                                         </div>
                                         
-                                        <div id="filename-display" class="filename-display mt-2 text-center small">  <!-- Added small class -->
-                                            <i class="bi bi-file-text me-1 text-muted"></i>  <!-- Reduced me-2 to me-1 -->
+                                        <div id="filename-display" class="filename-display mt-2 text-center small">
+                                            <i class="bi bi-file-text me-1 text-muted"></i>
                                             <span class="filename-text text-muted">No file selected</span>
-                                            <button type="button" class="btn-close btn-remove-file ms-1" style="display: none; font-size: 0.6rem;" aria-label="Remove file"></button>  <!-- Reduced ms-2 to ms-1, smaller font -->
+                                            <button type="button" class="btn-close btn-remove-file ms-1" style="display: none; font-size: 0.6rem;" aria-label="Remove file"></button>
                                         </div>
                                         
-                                        <div class="form-text text-center mt-1 small">  <!-- Reduced mt-2 to mt-1, added small -->
+                                        <div class="form-text text-center mt-1 small">
                                             <i class="bi bi-info-circle me-1"></i>Only .txt files accepted
                                         </div>
                                     </div>
                                     
-                                    <div id="file-error-message" class="alert alert-danger mt-2 py-2 text-center small" style="display: none;" role="alert">  <!-- Reduced mt-3 to mt-2, added small, reduced padding -->
-                                        <i class="bi bi-exclamation-triangle me-1"></i>  <!-- Reduced me-2 to me-1 -->
+                                    <div id="file-error-message" class="alert alert-danger mt-2 py-2 text-center small" style="display: none;" role="alert">
+                                        <i class="bi bi-exclamation-triangle me-1"></i>
                                         <span class="error-text"></span>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Filter Section -->
+        <div class="col-12 col-md-6">
+            <div class="filter-section">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body p-3">
+                        <div class="text-center mb-3">
+                            <i class="bi bi-funnel fs-2 text-info mb-2"></i>
+                            <h6 class="card-title fw-bold mb-1">Search Filters</h6>
+                            <p class="text-muted small">Filters apply to both single and bulk searches</p>
+                        </div>
+
+                        <div class="filter-fields">
+                            <!-- URL to Include -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-check-circle text-success me-2"></i>
+                                    URL to Include (Each Entry on New Line)
+                                </label>
+                                <textarea class="form-control form-control-sm" 
+                                        rows="2"
+                                        placeholder="example.com&#10;/blog/&#10;about-page"
+                                        id="url-include-filter"></textarea>
+                                <div class="form-text small">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Include URLs containing these terms (one per line)
+                                </div>
+                            </div>
+
+                            <!-- URL to Exclude -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-x-circle text-danger me-2"></i>
+                                    URL to Exclude (Each Entry on New Line)
+                                </label>
+                                <textarea class="form-control form-control-sm" 
+                                        rows="2"
+                                        placeholder="admin&#10;login&#10;/private/"
+                                        id="url-exclude-filter"></textarea>
+                                <div class="form-text small">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Exclude URLs containing these terms (one per line)
+                                </div>
+                            </div>
+
+                            <!-- Search Engine Filters -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-search me-2"></i>
+                                    Domain Filter (Each Entry on New Line)
+                                </label>
+                                <textarea class="form-control form-control-sm" 
+                                        rows="2"
+                                        placeholder=".gov&#10;.edu&#10;specific-domain.com"
+                                        id="domain-filter"></textarea>
+                                <div class="form-text small">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Filter by specific domains or TLDs (one per line)
+                                </div>
+                            </div>
+
+                            <!-- Result Type Filter -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-file-earmark me-2"></i>
+                                    File Type
+                                </label>
+                                <select class="form-select form-select-sm" id="filetype-filter">
+                                    <option value="">Any file type</option>
+                                    <option value="pdf">PDF</option>
+                                    <option value="doc">Word Document</option>
+                                    <option value="xls">Excel</option>
+                                    <option value="ppt">PowerPoint</option>
+                                    <option value="html">HTML</option>
+                                </select>
                             </div>
                         </div>
                     </div>

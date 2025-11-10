@@ -18,10 +18,14 @@ function createWindow() {
 
     win.loadFile("index.html");
 
+
+
     // // Remove this in production starts
     // // --- Open DevTools automatically ---
-    // win.webContents.openDevTools();
+    win.webContents.openDevTools();
     // // Remove this in production ends
+
+
 
     // Define the menu template
     const template = [
@@ -107,9 +111,9 @@ function createWindow() {
 
     // // Remove this in production starts
     // // --- Renderer errors forwarded to terminal ---
-    // ipcMain.on('renderer-error', (event, error) => {
-    //     console.error('Renderer Error:', error);
-    // });
+    ipcMain.on('renderer-error', (event, error) => {
+        console.error('Renderer Error:', error);
+    });
     // // Remove this in production ends
 }
 

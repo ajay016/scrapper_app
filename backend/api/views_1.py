@@ -60,9 +60,6 @@ from .utils.search_engine_scrappers import(
 
 logger = logging.getLogger(__name__)
 
-GLOBAL_STOP_FLAG = threading.Event()
-BULK_SEARCH_STOP_FLAG = threading.Event()
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def current_user(request):
@@ -71,88 +68,21 @@ def current_user(request):
     return Response(serializer.data)
 
 
-
-def apply_filters(href, filters):
-    """
-    Applies include, exclude, domain, and filetype filters to a single URL.
-    Returns True if the URL passes all filters, False otherwise.
-    """
-    url = href.lower()
-    include_terms = [term.strip().lower() for term in filters.get("url_include", "").splitlines() if term.strip()]
-    exclude_terms = [term.strip().lower() for term in filters.get("url_exclude", "").splitlines() if term.strip()]
-    domain_terms = [term.strip().lower() for term in filters.get("domain_filter", "").splitlines() if term.strip()]
-    file_type = filters.get("file_type_filter", "").strip().lower()
-
-    # 1️⃣ Exclude unwanted terms
-    if exclude_terms and any(ex in url for ex in exclude_terms):
-        return False
-
-    # 2️⃣ Include only if contains required terms
-    if include_terms and not any(inc in url for inc in include_terms):
-        return False
-
-    # 3️⃣ Domain/TLD filter
-    if domain_terms and not any(dom in url for dom in domain_terms):
-        return False
-
-    # 4️⃣ File type filter (check URL ending)
-    if file_type:
-        # Allow simple match like ".pdf" or "?file=example.pdf"
-        if not url.endswith(f".{file_type}") and f".{file_type}?" not in url:
-            return False
-
-    return True
-
-
 # ---------- SSE streaming view with fallback ----------
-
 @csrf_exempt
-@require_http_methods(["GET", "POST"])  # Allow both GET and POST
+@require_GET
 def search_and_parse_stream(request):
-    # Reset global stop before starting
-    GLOBAL_STOP_FLAG.clear()
+    keyword_raw = request.GET.get("q", "headphones")
+    engine = request.GET.get("engine", "bing").lower()
+    max_depth = int(request.GET.get("depth", 0))
+    
+    # limit = int(request.GET.get("limit", 20))
+    limit_raw = request.GET.get("limit", "").strip()
+    limit = int(limit_raw) if limit_raw.isdigit() else 0
 
-    # Handle both GET and POST requests
-    if request.method == 'POST':
-        try:
-            body = json.loads(request.body)
-            keyword_raw = body.get("q", "headphones")
-            engine = body.get("engine", "duck duck go").lower()
-            max_depth = int(body.get("depth", 0))
-            limit_raw_str = str(body.get("limit", "")).strip()
-            limit = int(limit_raw_str) if limit_raw_str.isdigit() else 0
-            
-            # Get filters from POST body
-            filters = {
-                "url_include": body.get("url_include", ""),
-                "url_exclude": body.get("url_exclude", ""),
-                "domain_filter": body.get("domain_filter", ""),
-                "file_type_filter": body.get("file_type_filter", ""),
-                "language_filter": body.get("language_filter", "")
-            }
-            
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Invalid JSON"}, status=400)
-        
-    else:  # GET request
-        keyword_raw = request.GET.get("q", "headphones")
-        engine = request.GET.get("engine", "duck duck go").lower()
-        max_depth = int(request.GET.get("depth", 0))
-        limit_raw = request.GET.get("limit", "")
-        limit = int(limit_raw) if limit_raw.isdigit() else 0
-        
-        # Get filters from GET parameters (for backward compatibility)
-        filters = {
-            "url_include": request.GET.get("url_include", ""),
-            "url_exclude": request.GET.get("url_exclude", ""),
-            "domain_filter": request.GET.get("domain_filter", ""),
-            "file_type_filter": request.GET.get("file_type_filter", ""),
-            "language_filter": request.GET.get("language_filter", "")
-        }
-
-    keyword_stripped = keyword_raw.strip().lower()
-
+    keyword_stripped = keyword_raw.strip()
     keyword_obj, _ = Keyword.objects.get_or_create(word=keyword_stripped)
+
     try:
         keyword_serialized = KeywordSerializer(keyword_obj).data
     except Exception:
@@ -161,7 +91,12 @@ def search_and_parse_stream(request):
     def parse_to_dict(data, depth=0):
         if not data or not data.get("url"):
             return None
-        node = {"url": data["url"], "title": data.get("title"), "depth": depth, "children": []}
+        node = {
+            "url": data["url"],
+            "title": data.get("title"),
+            "depth": depth,
+            "children": []
+        }
         for child in data.get("children", []):
             child_node = parse_to_dict(child, depth + 1)
             if child_node:
@@ -169,87 +104,61 @@ def search_and_parse_stream(request):
         return node
 
     def event_stream():
-        yield f"event: meta\ndata: {json.dumps({'keyword': keyword_serialized})}\n\n"
+        # meta info first
+        meta_payload = {"keyword": keyword_serialized}
+        yield f"event: meta\ndata: {json.dumps(meta_payload)}\n\n"
 
-        generator = (
-            scrape_bing_results(keyword_stripped, num_results=limit)
-            if engine == "bing"
-            else scrape_duckduckgo_results(keyword_stripped, num_results=limit, stop_flag=GLOBAL_STOP_FLAG)
-        )
+        # pick search generator
+        generator = scrape_bing_results(keyword_stripped, num_results=limit) if engine == "bing" else scrape_duckduckgo_results(keyword_stripped, num_results=limit)
 
+        # collect results with auto-fallback
+        results_found = False
         idx = 0
-        filtered_count = 0
-        
         for href in generator:
-            # 🛑 Immediately stop if global stop is triggered
-            if GLOBAL_STOP_FLAG.is_set():
-                print("⛔ Global stop detected — aborting search and closing browser.")
-                break
-
-            # Apply filters using your existing function
-            if not apply_filters(href, filters):
-                filtered_count += 1
-                continue
-
+            results_found = True
             idx += 1
             try:
                 parsed_data = parse_page(href, current_depth=0, max_depth=max_depth)
-                
-                # Apply filters to children as well
-                if parsed_data and 'children' in parsed_data:
-                    parsed_data['children'] = [
-                        child for child in parsed_data['children'] 
-                        if child.get('url') and apply_filters(child.get('url'), filters)
-                    ]
-                
                 node = parse_to_dict(parsed_data)
             except Exception as e:
-                print("⚠️ parse_page error for", href, e)
+                print("parse_page error for", href, e)
                 node = {"url": href, "title": None, "depth": 0, "children": []}
 
             payload = {
                 "keyword_id": keyword_obj.id,
                 "node": node,
-                "progress": {"current": idx, "total": limit or None},
-                "filters_applied": {
-                    "url_include": bool(filters["url_include"]),
-                    "url_exclude": bool(filters["url_exclude"]),
-                    "domain_filter": bool(filters["domain_filter"]),
-                    "language_filter": bool(filters["language_filter"]),
-                    "file_type_filter": bool(filters["file_type_filter"]),
-                    "filtered_count": filtered_count
-                }
+                "progress": {"current": idx, "total": limit or None}
             }
             yield f"data: {json.dumps(payload)}\n\n"
             time.sleep(0.02)
 
-        # FIXED: Use a variable for the done event data
-        done_data = {
-            'message': 'Search finished', 
-            'total_received': idx,
-            'total_filtered': filtered_count,
-            'filters_applied': {
-                'url_include': bool(filters["url_include"]),
-                'url_exclude': bool(filters["url_exclude"]),
-                'domain_filter': bool(filters["domain_filter"]),
-                'language_filter': bool(filters["language_filter"]),
-                'file_type_filter': bool(filters["file_type_filter"]),
-                'filtered_count': filtered_count
-            }
-        }
-        yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
+        # if Bing failed — retry with DuckDuckGo
+        if not results_found and engine == "bing":
+            print("⚠️ No Bing results found. Switching to DuckDuckGo fallback.")
+            for href in scrape_duckduckgo_results(keyword_stripped, num_results=limit):
+                idx += 1
+                try:
+                    parsed_data = parse_page(href, current_depth=0, max_depth=max_depth)
+                    node = parse_to_dict(parsed_data)
+                except Exception as e:
+                    print("parse_page error for", href, e)
+                    node = {"url": href, "title": None, "depth": 0, "children": []}
+
+                payload = {
+                    "keyword_id": keyword_obj.id,
+                    "node": node,
+                    "progress": {"current": idx, "total": limit or None}
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+                time.sleep(0.02)
+
+        done_payload = {"message": "Streaming complete", "total_received": idx, "keyword_id": keyword_obj.id}
+        yield f"event: done\ndata: {json.dumps(done_payload)}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"
     return response
-
-
-@csrf_exempt
-def stop_search(request):
-    GLOBAL_STOP_FLAG.set()
-    print("🛑 Global stop triggered! All scrapers will exit now.")
-    return JsonResponse({"status": "ok", "message": "Global stop signal sent."})
 
 
 # @csrf_exempt
@@ -296,26 +205,17 @@ def stop_search(request):
 #     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
 #     response["Cache-Control"] = "no-cache"
 #     return response
-
     
     
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def bulk_keywords_search_stream(request):
     """
-    Streamed bulk keyword search (SSE) using DuckDuckGo by default.
-    Reads .txt file line-by-line and streams results.
+    Streamed bulk keyword search (SSE).
+    Reads .txt file line-by-line and streams Bing/DuckDuckGo results.
     """
-    keywords_file = request.FILES.get('keywords_file')
-    used_engine = request.GET.get("engine", "duckduckgo").lower()  # default DuckDuckGo
-    
-    filters = {
-        "url_include": request.POST.get("url_include", ""),
-        "url_exclude": request.POST.get("url_exclude", ""),
-        "domain_filter": request.POST.get("domain_filter", ""),
-        "file_type_filter": request.POST.get("file_type_filter", ""),
-    }
 
+    keywords_file = request.FILES.get('keywords_file')
     if not keywords_file:
         return Response({"detail": "No file uploaded"}, status=400)
 
@@ -324,89 +224,69 @@ def bulk_keywords_search_stream(request):
     except Exception:
         return Response({"detail": "Could not read file. Ensure it's a valid .txt file."}, status=400)
 
-    num_results_raw = request.GET.get("bulk_limit", "").strip()
-    num_results = int(num_results_raw) if num_results_raw.isdigit() and int(num_results_raw) > 0 else None
-
     max_depth = 0
-
-    # Reset stop flag
-    BULK_SEARCH_STOP_FLAG.clear()
+    num_results = int(request.GET.get("bulk_limit", 20))
+    print('num_results: ', num_results)
 
     def event_stream():
         total_keywords = len(keywords)
         yield f"event: meta\ndata: {json.dumps({'total_keywords': total_keywords})}\n\n"
 
         for idx, keyword_raw in enumerate(keywords, start=1):
-            if BULK_SEARCH_STOP_FLAG.is_set():
-                print("⛔ Bulk search stopped by user")
-                break
-
             keyword_stripped = keyword_raw.strip()
             keyword_obj, _ = Keyword.objects.get_or_create(word=keyword_stripped)
-            try:
-                keyword_serialized = KeywordSerializer(keyword_obj).data
-            except Exception:
-                keyword_serialized = {"id": keyword_obj.id, "word": keyword_obj.word}
+            keyword_serialized = KeywordSerializer(keyword_obj).data
+            
+            print('bulk keyword: ', keyword_obj)
 
             yield f"event: keyword_start\ndata: {json.dumps({'keyword': keyword_serialized, 'index': idx})}\n\n"
 
+            # --- Try Bing first ---
+            try:
+                generator = scrape_bing_results(keyword_stripped, num_results)
+                links = list(generator)
+            except Exception as e:
+                print(f"[WARN] Bing failed for '{keyword_stripped}': {e}")
+                links = []
+
+            used_engine = "bing"
+
+            # If Bing failed or returned no links → fallback
+            if not links:
+                print(f"[INFO] Fallback to DuckDuckGo for '{keyword_stripped}'")
+                used_engine = "duckduckgo"
+                links = list(scrape_duckduckgo_results(keyword_stripped, num_results))
+
             results = []
-
-            # Choose engine
-            engines_to_try = [used_engine]
-            if used_engine != "duckduckgo":
-                engines_to_try.append("duckduckgo")  # fallback
-
-            for engine_name in engines_to_try:
+            for link in links:
                 try:
-                    if engine_name == "duckduckgo":
-                        generator = scrape_duckduckgo_results(keyword_stripped, num_results, stop_flag=BULK_SEARCH_STOP_FLAG)
-                    else:
-                        generator = scrape_bing_results(keyword_stripped, num_results)
-
-                    generated_any = False
-                    
-                    for href in generator:
-                        generated_any = True
-                        if BULK_SEARCH_STOP_FLAG.is_set():
-                            print("⛔ Stop flag detected mid-keyword — breaking links loop")
-                            break
-
-                        # 🧩 Apply filters before parsing
-                        if not apply_filters(href, filters):
-                            continue
-
-                        try:
-                            parsed_data = parse_page(href, current_depth=0, max_depth=max_depth)
-                            node = {"url": parsed_data.get("url"), "title": parsed_data.get("title"), "depth": 0, "children": []}
-                        except Exception as e:
-                            node = {"url": href, "title": None, "depth": 0, "children": []}
-                            print("parse_page error:", e)
-
-                        results.append(node)
-                        payload = {
-                            "keyword": keyword_serialized,
-                            "engine": engine_name,
-                            "progress": {"current": len(results), "total": num_results},
-                            "node": node,
-                        }
-                        
-                        yield f"data: {json.dumps(payload)}\n\n"
-                        
-                        time.sleep(0.02)
-
-                    if generated_any:
-                        # If this engine returned results, don't try fallback
-                        break
-
+                    parsed_data = parse_page(link, current_depth=0, max_depth=max_depth)
+                    node = {
+                        "url": parsed_data.get("url"),
+                        "title": parsed_data.get("title"),
+                        "depth": 0,
+                        "children": []
+                    }
                 except Exception as e:
-                    print(f"[WARN] Search failed for '{keyword_stripped}' using {engine_name}: {e}")
+                    node = {"url": link, "title": None, "depth": 0, "children": []}
+                    print("parse_page error:", e)
+
+                results.append(node)
+                payload = {
+                    "keyword": keyword_serialized,
+                    "engine": used_engine,
+                    "progress": {"current": len(results), "total": num_results},
+                    "node": node,
+                }
+                yield f"data: {json.dumps(payload)}\n\n"
+                time.sleep(0.05)
 
             done_payload = {
                 "keyword": keyword_serialized,
                 "total_results": len(results),
-                "engine_used": engine_name,
+                "engine_used": used_engine,
             }
+            print('bulk keyword payload: ', done_payload)
             yield f"event: keyword_done\ndata: {json.dumps(done_payload)}\n\n"
 
         yield f"event: done\ndata: {json.dumps({'message': 'Bulk streaming complete'})}\n\n"
@@ -415,16 +295,6 @@ def bulk_keywords_search_stream(request):
     response["Cache-Control"] = "no-cache"
     response["X-Accel-Buffering"] = "no"
     return response
-
-
-@csrf_exempt
-def stop_bulk_search(request):
-    """
-    API endpoint to stop the bulk keyword search immediately.
-    """
-    BULK_SEARCH_STOP_FLAG.set()
-    print("🛑 Stop signal set for bulk search")
-    return Response({"status": "ok", "message": "Bulk search stopped."})
     
 
 
@@ -943,10 +813,8 @@ logger = logging.getLogger(__name__)
 # In-memory storage for real-time updates
 crawler_sessions = {}
 
-crawler_sessions = {}
-
-class FastURLCrawler:
-    def __init__(self, session_id, base_url, max_depth=2, use_selenium=False, filters=None, max_workers=5):
+class URLCrawler:
+    def __init__(self, session_id, base_url, max_depth=2, use_selenium=False):
         self.session_id = session_id
         self.base_url = base_url
         self.max_depth = max_depth
@@ -956,180 +824,92 @@ class FastURLCrawler:
         self.is_running = True
         self.base_domain = urlparse(base_url).netloc
         self.use_selenium = use_selenium
-        self.filters = filters or {}
-        self.max_workers = max_workers  # Parallel processing
-        
-        # Optimized session with connection pooling
         self.session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=2)
-        self.session.mount('http://', adapter)
-        self.session.mount('https://', adapter)
-        
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
-        
+        # Track all unique URLs to avoid duplicates
         self.all_unique_urls = set()
-        self.url_lock = threading.Lock()  # Thread safety
         
-        # Rate limiting
-        self.last_request_time = 0
-        self.min_request_interval = 0.05  # 50ms between requests
-        
-    def rate_limit(self):
-        """Respectful rate limiting"""
-        current_time = time.time()
-        elapsed = current_time - self.last_request_time
-        if elapsed < self.min_request_interval:
-            time.sleep(self.min_request_interval - elapsed)
-        self.last_request_time = time.time()
-    
-    def should_follow_link(self, link):
-        """Optimized filter checking"""
-        if not self.filters:
-            return link.get('is_internal', False)
+    def get_driver(self):
+        """Initialize Selenium driver only when needed"""
+        if self.driver:
+            return self.driver
             
         try:
-            url = link['url']
-            is_internal = link.get('is_internal', False)
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             
-            # ⚠️ CRITICAL: NEVER follow external links
-            if not is_internal:
-                return False
-            
-            # Quick depth check first (cheapest)
-            depth = link.get('depth', 0)
-            depth_filter = self.filters.get('depth', 'all')
-            if depth_filter != 'all':
-                if depth_filter == '3' and depth < 3:
-                    return False
-                elif depth_filter != '3' and int(depth_filter) != depth:
-                    return False
-            
-            # URL contains check
-            url_contains = self.filters.get('urlContains', '')
-            if url_contains:
-                case_sensitive = self.filters.get('caseSensitive', False)
-                if not case_sensitive:
-                    url = url.lower()
-                    url_contains = url_contains.lower()
-                if url_contains not in url:
-                    return False
-            
-            # URL excludes check
-            url_excludes = self.filters.get('urlExcludes', '')
-            if url_excludes:
-                case_sensitive = self.filters.get('caseSensitive', False)
-                excludes = [ex.strip() for ex in url_excludes.split(',') if ex.strip()]
-                for exclude in excludes:
-                    if not case_sensitive:
-                        exclude = exclude.lower()
-                    if exclude in url:
-                        return False
-            
-            # Text contains check
-            text_contains = self.filters.get('textContains', '')
-            if text_contains:
-                text = link.get('text', '')
-                if text:
-                    case_sensitive = self.filters.get('caseSensitive', False)
-                    if not case_sensitive:
-                        text = text.lower()
-                        text_contains = text_contains.lower()
-                    if text_contains not in text:
-                        return False
-            
-            # Domain filter
-            domain_filter = self.filters.get('domain', '')
-            if domain_filter:
-                link_domain = urlparse(url).netloc
-                case_sensitive = self.filters.get('caseSensitive', False)
-                if not case_sensitive:
-                    link_domain = link_domain.lower()
-                    domain_filter = domain_filter.lower()
-                if domain_filter not in link_domain:
-                    return False
-            
-            # Regex filter (most expensive, do last)
-            regex_filter = self.filters.get('regex', '')
-            if regex_filter:
-                try:
-                    flags = 0 if self.filters.get('caseSensitive', False) else re.IGNORECASE
-                    pattern = re.compile(regex_filter, flags)
-                    if not pattern.search(url):
-                        return False
-                except re.error:
-                    pass
-            
-            if self.filters.get('invertFilter', False):
-                return False
-            
-            return True
-            
+            self.driver = webdriver.Chrome(options=chrome_options)
+            return self.driver
         except Exception as e:
-            logger.error(f"Error in should_follow_link: {e}")
-            return False
-    
+            logger.error(f"Failed to initialize Selenium driver: {e}")
+            return None
+        
+    def close_driver(self):
+        """Close Selenium driver if it exists"""
+        if self.driver:
+            try:
+                self.driver.quit()
+            except:
+                pass
+            self.driver = None
+            
     def crawl(self):
-        """Optimized crawling with parallel processing"""
+        """Main crawling function using BFS algorithm - unlimited pages"""
         try:
+            # Initialize session in crawler_sessions if not exists
             if self.session_id not in crawler_sessions:
                 crawler_sessions[self.session_id] = {
                     'crawler': self,
                     'results': [],
                     'started_at': time.time(),
                     'status': 'running',
-                    'filters': self.filters,
                     'stats': {
                         'total_found': 0,
                         'pages_crawled': 0,
                         'beautifulsoup_success': 0,
                         'selenium_fallback': 0,
                         'errors': 0,
-                        'duplicates_skipped': 0,
-                        'filtered_links': 0,
-                        'parallel_workers': self.max_workers
+                        'duplicates_skipped': 0
                     }
                 }
             
             queue = deque([(self.base_url, 0)])
-            batch_size = 10  # Process URLs in batches
             
             while queue and self.is_running:
-                # Take a batch of URLs to process in parallel
-                current_batch = []
-                while queue and len(current_batch) < batch_size:
-                    url, depth = queue.popleft()
-                    if url not in self.visited_urls and depth <= self.max_depth:
-                        current_batch.append((url, depth))
+                url, depth = queue.popleft()
                 
-                if not current_batch:
+                if url in self.visited_urls or depth > self.max_depth:
                     continue
+                    
+                self.visited_urls.add(url)
                 
-                # Process batch in parallel
-                new_links = self.process_batch_parallel(current_batch)
+                # Process the current URL
+                new_links = self.process_page(url, depth)
                 
-                # Add new links to queue
-                for link in new_links:
-                    if link['url'] not in self.visited_urls and link.get('depth', 0) < self.max_depth:
-                        if self.should_follow_link(link):
-                            queue.append((link['url'], link.get('depth', 0) + 1))
-                        else:
-                            with self.url_lock:
-                                crawler_sessions[self.session_id]['stats']['filtered_links'] += 1
+                # Add new links to queue if within depth limit
+                if depth < self.max_depth:
+                    for link in new_links:
+                        if link['is_internal'] and link['url'] not in self.visited_urls:
+                            queue.append((link['url'], depth + 1))
+                            
+                # Small delay to be respectful to the server
+                time.sleep(0.1)
                 
-                # Progress update
-                if len(self.visited_urls) % 20 == 0:
+                # Send progress update every 10 pages
+                if len(self.visited_urls) % 10 == 0:
                     self.add_result({
                         'type': 'progress',
                         'visited': len(self.visited_urls),
                         'found': len(self.found_links),
                         'queued': len(queue),
-                        'filtered': crawler_sessions[self.session_id]['stats']['filtered_links'],
-                        'message': f'Progress: {len(self.visited_urls)} pages, {len(self.found_links)} links, {len(queue)} queued'
+                        'message': f'Progress: {len(self.visited_urls)} pages visited, {len(self.found_links)} links found, {len(queue)} in queue'
                     })
                             
         except Exception as e:
@@ -1140,237 +920,235 @@ class FastURLCrawler:
             })
         finally:
             self.close_driver()
+            # Update session status
             if self.session_id in crawler_sessions:
                 crawler_sessions[self.session_id]['status'] = 'completed'
             
             self.add_result({
                 'type': 'complete',
-                'message': f'Crawling completed. Visited {len(self.visited_urls)} pages, found {len(self.found_links)} links.',
+                'message': f'Crawling completed. Visited {len(self.visited_urls)} pages and found {len(self.found_links)} unique links.',
                 'total_links': len(self.found_links),
-                'total_pages': len(self.visited_urls),
-                'filtered_links': crawler_sessions[self.session_id]['stats']['filtered_links']
+                'total_pages': len(self.visited_urls)
             })
-    
-    def process_batch_parallel(self, url_batch):
-        """Process a batch of URLs in parallel"""
-        all_new_links = []
-        
-        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(url_batch))) as executor:
-            future_to_url = {
-                executor.submit(self.process_single_page, url, depth): (url, depth) 
-                for url, depth in url_batch
-            }
             
-            for future in as_completed(future_to_url):
-                url, depth = future_to_url[future]
-                try:
-                    new_links = future.result(timeout=15)  # 15 second timeout per page
-                    all_new_links.extend(new_links)
-                    
-                    # Mark as visited only if successful
-                    with self.url_lock:
-                        self.visited_urls.add(url)
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to process {url}: {e}")
-                    with self.url_lock:
-                        crawler_sessions[self.session_id]['stats']['errors'] += 1
-        
-        return all_new_links
-    
-    def process_single_page(self, url, depth):
-        """Process a single page - optimized version"""
-        self.rate_limit()  # Respect rate limiting
+    def process_page(self, url, depth):
+        """Process a single page and extract links - try BeautifulSoup first"""
+        new_links = []
         
         try:
+            # Notify start of page processing
+            self.add_result({
+                'type': 'processing',
+                'url': url,
+                'depth': depth,
+                'message': f'Processing page (depth {depth})'
+            })
+            
             # Update stats
-            with self.url_lock:
+            if self.session_id in crawler_sessions:
                 crawler_sessions[self.session_id]['stats']['pages_crawled'] += 1
             
-            # Try with BeautifulSoup first
-            links = self.fast_process_with_beautifulsoup(url, depth)
+            # Try with BeautifulSoup first (faster)
+            links = self.process_with_beautifulsoup(url, depth)
             
-            # Fallback to Selenium if needed and enabled
+            # If no links found with BeautifulSoup, try with Selenium
             if not links and self.use_selenium:
-                links = self.fast_process_with_selenium(url, depth)
-            
-            # Filter and process found links
-            filtered_links = []
+                links = self.process_with_selenium(url, depth)
+                
             for link in links:
-                with self.url_lock:
-                    if link['url'] in self.all_unique_urls:
+                # Check if URL is already in our global unique set
+                if link['url'] in self.all_unique_urls:
+                    # Skip duplicate URL
+                    if self.session_id in crawler_sessions:
                         crawler_sessions[self.session_id]['stats']['duplicates_skipped'] += 1
-                        continue
-                    
-                    self.all_unique_urls.add(link['url'])
-                    crawler_sessions[self.session_id]['stats']['total_found'] += 1
+                    continue
+                
+                # Add to global unique URLs set
+                self.all_unique_urls.add(link['url'])
                 
                 link['depth'] = depth
                 link['found_at'] = time.time()
-                filtered_links.append(link)
+                self.found_links.append(link)
+                new_links.append(link)
                 
-                # Real-time update for each link
+                # Update stats
+                if self.session_id in crawler_sessions:
+                    crawler_sessions[self.session_id]['stats']['total_found'] += 1
+                
+                # Send real-time update
                 self.add_result({
                     'type': 'link_found',
                     'link': link,
-                    'total_found': len(self.found_links) + len(filtered_links),
-                    'total_visited': len(self.visited_urls) + 1
+                    'total_found': len(self.found_links),
+                    'total_visited': len(self.visited_urls)
                 })
-            
-            # Add to found links
-            with self.url_lock:
-                self.found_links.extend(filtered_links)
-            
-            return filtered_links
-            
+                    
         except Exception as e:
             logger.error(f"Error processing page {url}: {e}")
-            with self.url_lock:
+            if self.session_id in crawler_sessions:
                 crawler_sessions[self.session_id]['stats']['errors'] += 1
-            return []
-    
-    def fast_process_with_beautifulsoup(self, url, depth):
-        """Optimized BeautifulSoup processing"""
+                
+            self.add_result({
+                'type': 'error',
+                'url': url,
+                'message': f'Error processing {url}: {str(e)}'
+            })
+            
+        return new_links
+        
+    def process_with_beautifulsoup(self, url, depth):
+        """Process page using BeautifulSoup (fast method)"""
         try:
-            response = self.session.get(url, timeout=8, allow_redirects=True)  # Reduced timeout
+            response = self.session.get(url, timeout=10)
             response.raise_for_status()
             
-            # Quick content type check
-            content_type = response.headers.get('content-type', '')
-            if 'text/html' not in content_type:
-                return []
-            
             soup = BeautifulSoup(response.content, 'html.parser')
-            links = self.fast_extract_links(soup, url)
+            links = self.extract_links(soup, url)
             
-            with self.url_lock:
+            # Update stats
+            if self.session_id in crawler_sessions:
                 crawler_sessions[self.session_id]['stats']['beautifulsoup_success'] += 1
+            
+            self.add_result({
+                'type': 'info',
+                'url': url,
+                'message': f'Found {len(links)} links with BeautifulSoup'
+            })
             
             return links
             
         except Exception as e:
-            return []  # Silent fail, will try Selenium if enabled
-    
-    def fast_process_with_selenium(self, url, depth):
-        """Optimized Selenium processing with faster setup"""
-        driver = self.get_fast_driver()
+            self.add_result({
+                'type': 'warning',
+                'url': url,
+                'message': f'BeautifulSoup failed for {url}: {str(e)}'
+            })
+            return []
+            
+    def process_with_selenium(self, url, depth):
+        """Process page using Selenium (for JavaScript-heavy pages)"""
+        driver = self.get_driver()
         if not driver:
             return []
             
+        links = []
+        
         try:
-            driver.set_page_load_timeout(10)
             driver.get(url)
-            
-            # Faster waiting - only wait for body
-            WebDriverWait(driver, 5).until(
+            WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
             
-            # Quick scroll instead of full scroll
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-            time.sleep(0.2)
+            # Scroll to load lazy content
+            self.scroll_page(driver)
             
+            # Extract links
             page_source = driver.page_source
             soup = BeautifulSoup(page_source, 'html.parser')
-            links = self.fast_extract_links(soup, url)
+            links = self.extract_links(soup, url)
             
-            with self.url_lock:
+            # Update stats
+            if self.session_id in crawler_sessions:
                 crawler_sessions[self.session_id]['stats']['selenium_fallback'] += 1
             
-            return links
+            self.add_result({
+                'type': 'info',
+                'url': url,
+                'message': f'Found {len(links)} links with Selenium'
+            })
             
-        except Exception:
-            return []
-        finally:
-            # Don't close driver immediately, reuse it
+        except Exception as e:
+            self.add_result({
+                'type': 'error',
+                'url': url,
+                'message': f'Selenium failed for {url}: {str(e)}'
+            })
+            
+        return links
+        
+    def scroll_page(self, driver):
+        """Scroll page to load lazy content"""
+        try:
+            last_height = driver.execute_script("return document.body.scrollHeight")
+            
+            for _ in range(2):  # Reduced scroll attempts for speed
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(0.3)
+                new_height = driver.execute_script("return document.body.scrollHeight")
+                if new_height == last_height:
+                    break
+                last_height = new_height
+        except:
             pass
-    
-    def fast_extract_links(self, soup, base_url):
-        """Optimized link extraction"""
+            
+    def extract_links(self, soup, base_url):
+        """Extract all links from BeautifulSoup object - remove duplicates at extraction level too"""
         links = []
-        base_domain = self.base_domain
-        seen_urls = set()
+        base_domain = urlparse(base_url).netloc
+        
+        # Use a set to track URLs found on this page to avoid duplicates
+        page_seen_urls = set()
         
         for a_tag in soup.find_all('a', href=True):
             try:
                 href = a_tag['href'].strip()
-                if not href or href.startswith(('javascript:', 'mailto:', 'tel:', '#')):
+                if not href:
                     continue
-                
+                    
                 full_url = urljoin(base_url, href)
-                parsed_url = urlparse(full_url)
                 
-                # Quick normalization
+                # Skip invalid URLs
+                if not full_url or full_url.startswith(('javascript:', 'mailto:', 'tel:', '#')):
+                    continue
+                    
+                # Normalize URL
+                parsed_url = urlparse(full_url)
                 normalized_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
                 if parsed_url.query:
                     normalized_url += f"?{parsed_url.query}"
                 
-                if normalized_url in seen_urls:
+                # Skip if we've already seen this URL on current page
+                if normalized_url in page_seen_urls:
                     continue
-                seen_urls.add(normalized_url)
+                    
+                page_seen_urls.add(normalized_url)
                 
-                is_internal = parsed_url.netloc == base_domain
+                # Determine if link is internal
+                is_internal = parsed_url.netloc == self.base_domain
                 
-                link_text = a_tag.get_text(strip=True)[:150]  # Reduced text length
+                # Extract link text
+                link_text = a_tag.get_text(strip=True)
                 if not link_text:
-                    link_text = a_tag.get('title', '')[:150] or ''
+                    link_text = a_tag.get('title', '') or normalized_url
+                
+                # Skip very long text
+                link_text = link_text[:200]
                 
                 links.append({
                     'url': normalized_url,
                     'text': link_text,
                     'is_internal': is_internal,
                     'is_external': not is_internal,
-                    'source_url': base_url,
-                    'domain': parsed_url.netloc
+                    'source_url': base_url
                 })
                 
-            except Exception:
+            except Exception as e:
                 continue
                 
         return links
-    
-    def get_fast_driver(self):
-        """Get optimized Selenium driver"""
-        if not self.driver:
-            try:
-                chrome_options = Options()
-                chrome_options.add_argument("--headless")
-                chrome_options.add_argument("--no-sandbox")
-                chrome_options.add_argument("--disable-dev-shm-usage")
-                chrome_options.add_argument("--disable-gpu")
-                chrome_options.add_argument("--disable-images")  # Faster loading
-                chrome_options.add_argument("--blink-settings=imagesEnabled=false")
-                
-                self.driver = webdriver.Chrome(options=chrome_options)
-                self.driver.set_page_load_timeout(15)
-            except Exception as e:
-                logger.error(f"Failed to create driver: {e}")
-                return None
-        return self.driver
-    
+        
     def add_result(self, result):
-        """Thread-safe result adding"""
+        """Add result to session storage"""
         if self.session_id in crawler_sessions:
-            with self.url_lock:
-                crawler_sessions[self.session_id]['results'].append(result)
-    
-    def close_driver(self):
-        """Close Selenium driver"""
-        if self.driver:
-            try:
-                self.driver.quit()
-            except:
-                pass
-            self.driver = None
-    
+            crawler_sessions[self.session_id]['results'].append(result)
+            
     def stop(self):
         """Stop the crawler"""
         self.is_running = False
         self.close_driver()
         if self.session_id in crawler_sessions:
             crawler_sessions[self.session_id]['status'] = 'stopped'
-            
-            
+
 # Session cleanup function
 def cleanup_old_sessions():
     """Remove sessions older than 1 hour"""
@@ -1385,25 +1163,23 @@ def cleanup_old_sessions():
         if session_id in crawler_sessions:
             crawler_sessions.pop(session_id)
 
-# Update your start_url_crawl function to use FastURLCrawler
 @require_http_methods(["POST"])
 @csrf_exempt
 def start_url_crawl(request):
-    """Start a new optimized URL crawling session"""
+    """Start a new URL crawling session - unlimited pages"""
     try:
+        # Clean up old sessions first
         cleanup_old_sessions()
         
         data = json.loads(request.body)
         url = data.get('url', '').strip()
         max_depth = int(data.get('max_depth', 2))
         use_selenium = data.get('use_selenium', False)
-        max_workers = int(data.get('max_workers', 5))  # New parameter
-        
-        filters = data.get('filters', {})
         
         if not url:
             return JsonResponse({'error': 'URL is required'}, status=400)
             
+        # Validate URL
         try:
             parsed = urlparse(url)
             if not parsed.scheme or not parsed.netloc:
@@ -1411,28 +1187,27 @@ def start_url_crawl(request):
         except:
             return JsonResponse({'error': 'Invalid URL format'}, status=400)
             
+        # Generate session ID
         session_id = str(uuid.uuid4())
         
+        # Initialize crawler session
         crawler_sessions[session_id] = {
             'crawler': None,
             'results': [],
             'started_at': time.time(),
             'status': 'starting',
-            'filters': filters,
             'stats': {
                 'total_found': 0,
                 'pages_crawled': 0,
                 'beautifulsoup_success': 0,
                 'selenium_fallback': 0,
                 'errors': 0,
-                'duplicates_skipped': 0,
-                'filtered_links': 0,
-                'parallel_workers': max_workers
+                'duplicates_skipped': 0
             }
         }
         
-        # Use FastURLCrawler instead of URLCrawler
-        crawler = FastURLCrawler(session_id, url, max_depth, use_selenium, filters, max_workers)
+        # Start crawler in separate thread - NO PAGE LIMIT
+        crawler = URLCrawler(session_id, url, max_depth, use_selenium)
         crawler_sessions[session_id]['crawler'] = crawler
         crawler_sessions[session_id]['status'] = 'running'
         
@@ -1440,21 +1215,19 @@ def start_url_crawl(request):
         thread.daemon = True
         thread.start()
         
-        logger.info(f"Started FAST crawling session {session_id} for URL: {url}")
+        logger.info(f"Started unlimited crawling session {session_id} for URL: {url}")
         
         return JsonResponse({
             'success': True,
             'session_id': session_id,
-            'message': 'Fast crawling started with parallel processing',
+            'message': 'Unlimited crawling started - will continue until all links are found or stopped manually',
             'max_depth': max_depth,
-            'max_workers': max_workers,
-            'filters_applied': bool(filters)
+            'unlimited': True
         })
         
     except Exception as e:
-        logger.error(f"Failed to start fast crawling: {e}")
+        logger.error(f"Failed to start crawling: {e}")
         return JsonResponse({'error': f'Failed to start crawling: {str(e)}'}, status=500)
-
 
 @require_http_methods(["GET"])
 def get_crawl_results(request):
@@ -1486,28 +1259,23 @@ def get_crawl_results(request):
 @require_http_methods(["GET"])
 def get_crawl_status(request):
     """Get current crawling status"""
-    
-    # Step 1: Clean up old sessions
+    # Clean up old sessions first
     cleanup_old_sessions()
     
-    # Step 2: Get session ID from query parameters
     session_id = request.GET.get('session_id')
     
     if not session_id:
         return JsonResponse({'error': 'Session ID is required'}, status=400)
-    
-    # Step 3: Validate if session exists
+        
     if session_id not in crawler_sessions:
         return JsonResponse({'error': 'Invalid session ID or session expired'}, status=404)
-    
-    # Step 4: Get the session info
+        
     session = crawler_sessions[session_id]
     
-    # Step 5: Prepare and return the response
     return JsonResponse({
-        'status': session.get('status', 'unknown'),
-        'stats': session.get('stats', {}),
-        'running_time': round(time.time() - session.get('started_at', time.time()), 2),
+        'status': session['status'],
+        'stats': session['stats'],
+        'running_time': time.time() - session['started_at'],
         'session_exists': True
     })
 
@@ -1556,167 +1324,165 @@ def list_sessions(request):
         'active_sessions': len(crawler_sessions),
         'sessions': sessions_info
     })
-
-
     
-def search_url(request):
-    """Parse URL and extract all links with pagination support"""
-    url = request.GET.get('url', '').strip()
-    max_pages = int(request.GET.get('max_pages', 1))
-    max_depth = int(request.GET.get('max_depth', 0))
+# def search_url(request):
+#     """Parse URL and extract all links with pagination support"""
+#     url = request.GET.get('url', '').strip()
+#     max_pages = int(request.GET.get('max_pages', 1))
+#     max_depth = int(request.GET.get('max_depth', 0))
     
-    if not url:
-        return JsonResponse({'error': 'URL is required'}, status=400)
+#     if not url:
+#         return JsonResponse({'error': 'URL is required'}, status=400)
     
-    try:
-        # Parse the initial page
-        results = parse_url_with_pagination(url, max_pages, max_depth)
+#     try:
+#         # Parse the initial page
+#         results = parse_url_with_pagination(url, max_pages, max_depth)
         
-        return JsonResponse({
-            'success': True,
-            'url': url,
-            'all_links': results,
-            'total_links': len(results)
-        })
+#         return JsonResponse({
+#             'success': True,
+#             'url': url,
+#             'all_links': results,
+#             'total_links': len(results)
+#         })
         
-    except Exception as e:
-        return JsonResponse({'error': f'Failed to parse URL: {str(e)}'}, status=500)
+#     except Exception as e:
+#         return JsonResponse({'error': f'Failed to parse URL: {str(e)}'}, status=500)
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def save_url_results(request):
-    """Save selected URL results to database project-wise"""
-    try:
-        data = json.loads(request.body)
-        items = data.get('items', [])
-        project_id = data.get('project_id')
-        folder_id = data.get('folder_id')
-        source_url = data.get('source_url')
-        search_name = data.get('search_name', f"URL Crawl - {source_url}")
+# @csrf_exempt
+# @require_http_methods(["POST"])
+# def save_url_results(request):
+#     """Save selected URL results to database project-wise"""
+#     try:
+#         data = json.loads(request.body)
+#         items = data.get('items', [])
+#         project_id = data.get('project_id')
+#         folder_id = data.get('folder_id')
+#         source_url = data.get('source_url')
+#         search_name = data.get('search_name', f"URL Crawl - {source_url}")
         
-        if not items:
-            return JsonResponse({'error': 'No items to save'}, status=400)
+#         if not items:
+#             return JsonResponse({'error': 'No items to save'}, status=400)
         
-        if not project_id:
-            return JsonResponse({'error': 'Project ID is required'}, status=400)
+#         if not project_id:
+#             return JsonResponse({'error': 'Project ID is required'}, status=400)
         
-        # Import models
-        from django.db import transaction
-        from datetime import datetime
+#         # Import models
+#         from django.db import transaction
+#         from datetime import datetime
         
-        # Get or create project and folder
-        try:
-            project = Project.objects.get(id=project_id, user=request.user)
-            folder = None
-            if folder_id:
-                folder = ProjectFolder.objects.get(id=folder_id, project=project)
-        except (Project.DoesNotExist, ProjectFolder.DoesNotExist):
-            return JsonResponse({'error': 'Invalid project or folder'}, status=400)
+#         # Get or create project and folder
+#         try:
+#             project = Project.objects.get(id=project_id, user=request.user)
+#             folder = None
+#             if folder_id:
+#                 folder = ProjectFolder.objects.get(id=folder_id, project=project)
+#         except (Project.DoesNotExist, ProjectFolder.DoesNotExist):
+#             return JsonResponse({'error': 'Invalid project or folder'}, status=400)
         
-        saved_count = 0
-        saved_urls = set()
+#         saved_count = 0
+#         saved_urls = set()
         
-        with transaction.atomic():
-            # Create a new search job for this project
-            search_job = SearchJob.objects.create(
-                user=request.user,
-                project=project,  # Associate with project
-                folder=folder,
-                name=search_name,
-                search_type="url_crawl",
-                status="completed",
-                total_results=len(items),
-                metadata={
-                    'source_url': source_url,
-                    'crawled_at': datetime.now().isoformat(),
-                    'total_links_found': len(items)
-                }
-            )
+#         with transaction.atomic():
+#             # Create a new search job for this project
+#             search_job = SearchJob.objects.create(
+#                 user=request.user,
+#                 project=project,  # Associate with project
+#                 folder=folder,
+#                 name=search_name,
+#                 search_type="url_crawl",
+#                 status="completed",
+#                 total_results=len(items),
+#                 metadata={
+#                     'source_url': source_url,
+#                     'crawled_at': datetime.now().isoformat(),
+#                     'total_links_found': len(items)
+#                 }
+#             )
             
-            # Create search settings for this job
-            SearchSetting.objects.create(
-                job=search_job,
-                project=project,
-                engines=["url_parser"],
-                results_per_keyword=len(items),
-                crawl_depth=0,
-                crawl_entire_domain=False,
-                search_url=source_url
-            )
+#             # Create search settings for this job
+#             SearchSetting.objects.create(
+#                 job=search_job,
+#                 project=project,
+#                 engines=["url_parser"],
+#                 results_per_keyword=len(items),
+#                 crawl_depth=0,
+#                 crawl_entire_domain=False,
+#                 search_url=source_url
+#             )
             
-            # Create or get keyword for this search
-            keyword, created = Keyword.objects.get_or_create(
-                user=request.user,
-                project=project,  # Associate keyword with project
-                folder=folder,
-                word=f"url_crawl_{source_url}",
-                defaults={
-                    'search_volume': len(items),
-                    'is_primary': False
-                }
-            )
+#             # Create or get keyword for this search
+#             keyword, created = Keyword.objects.get_or_create(
+#                 user=request.user,
+#                 project=project,  # Associate keyword with project
+#                 folder=folder,
+#                 word=f"url_crawl_{source_url}",
+#                 defaults={
+#                     'search_volume': len(items),
+#                     'is_primary': False
+#                 }
+#             )
             
-            # Save each result
-            for item in items:
-                try:
-                    url = item.get('url', '').strip()
-                    if not url or url in saved_urls:
-                        continue
+#             # Save each result
+#             for item in items:
+#                 try:
+#                     url = item.get('url', '').strip()
+#                     if not url or url in saved_urls:
+#                         continue
                         
-                    saved_urls.add(url)
+#                     saved_urls.add(url)
                     
-                    # Extract potential company name from URL or text
-                    name = extract_company_name(url, item.get('text', ''))
+#                     # Extract potential company name from URL or text
+#                     name = extract_company_name(url, item.get('text', ''))
                     
-                    # Extract potential email and phone
-                    email, phone = extract_contact_info(url, item.get('text', ''))
+#                     # Extract potential email and phone
+#                     email, phone = extract_contact_info(url, item.get('text', ''))
                     
-                    # Create search result link
-                    SearchResultLink.objects.create(
-                        user=request.user,
-                        project=project,  # Associate with project
-                        folder=folder,
-                        job=search_job,
-                        keyword=keyword,
-                        url=url,
-                        title=item.get('text', '')[:500],
-                        name=name,
-                        email=email,
-                        phone_number=phone,
-                        domain=urlparse(url).netloc,
-                        is_internal=item.get('is_internal', False),
-                        is_external=item.get('is_external', False),
-                        depth=item.get('depth', 0),
-                        metadata={
-                            'source_url': source_url,
-                            'original_text': item.get('text', '')[:1000],
-                            'crawled_at': datetime.now().isoformat(),
-                            'link_depth': item.get('depth', 0)
-                        }
-                    )
-                    saved_count += 1
+#                     # Create search result link
+#                     SearchResultLink.objects.create(
+#                         user=request.user,
+#                         project=project,  # Associate with project
+#                         folder=folder,
+#                         job=search_job,
+#                         keyword=keyword,
+#                         url=url,
+#                         title=item.get('text', '')[:500],
+#                         name=name,
+#                         email=email,
+#                         phone_number=phone,
+#                         domain=urlparse(url).netloc,
+#                         is_internal=item.get('is_internal', False),
+#                         is_external=item.get('is_external', False),
+#                         depth=item.get('depth', 0),
+#                         metadata={
+#                             'source_url': source_url,
+#                             'original_text': item.get('text', '')[:1000],
+#                             'crawled_at': datetime.now().isoformat(),
+#                             'link_depth': item.get('depth', 0)
+#                         }
+#                     )
+#                     saved_count += 1
                     
-                except Exception as e:
-                    print(f"Error saving item {item.get('url', 'unknown')}: {str(e)}")
-                    continue
+#                 except Exception as e:
+#                     print(f"Error saving item {item.get('url', 'unknown')}: {str(e)}")
+#                     continue
         
-        # Update project stats
-        project.total_keywords = Keyword.objects.filter(project=project).count()
-        project.total_results = SearchResultLink.objects.filter(project=project).count()
-        project.last_activity = datetime.now()
-        project.save()
+#         # Update project stats
+#         project.total_keywords = Keyword.objects.filter(project=project).count()
+#         project.total_results = SearchResultLink.objects.filter(project=project).count()
+#         project.last_activity = datetime.now()
+#         project.save()
         
-        return JsonResponse({
-            'success': True,
-            'message': f'Successfully saved {saved_count} links to project "{project.name}"',
-            'saved_count': saved_count,
-            'project_id': project.id,
-            'project_name': project.name,
-            'job_id': search_job.id
-        })
+#         return JsonResponse({
+#             'success': True,
+#             'message': f'Successfully saved {saved_count} links to project "{project.name}"',
+#             'saved_count': saved_count,
+#             'project_id': project.id,
+#             'project_name': project.name,
+#             'job_id': search_job.id
+#         })
         
-    except Exception as e:
-        return JsonResponse({'error': f'Failed to save results: {str(e)}'}, status=500)
+#     except Exception as e:
+#         return JsonResponse({'error': f'Failed to save results: {str(e)}'}, status=500)
 
 
 @require_http_methods(["GET"])

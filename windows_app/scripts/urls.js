@@ -18,6 +18,26 @@
     let resultsInterval = null;
     let statusInterval = null;
 
+    let lastRenderTime = 0;
+    const RENDER_INTERVAL = 1000;
+    
+    // Filter variables
+    let currentFilters = {
+        linkType: 'all',
+        depth: 'all',
+        urlContains: '',
+        urlExcludes: '',
+        textContains: '',
+        domain: '',
+        regex: '',
+        caseSensitive: false,
+        invertFilter: false
+    };
+    
+    let filteredResults = [];
+    let isFilterActive = false;
+    let isParsingWithFilters = false;
+
     function renderResults(results, baseIndex = 0) {
         if (!results || !results.length) return '';
         return results.map((r, index) => {
@@ -93,6 +113,11 @@
                 type = 'success';
                 icon = '🎉';
                 break;
+            case 'progress':
+                message = update.message;
+                type = 'info';
+                icon = '📊';
+                break;
         }
 
         const alertDiv = document.createElement('div');
@@ -132,11 +157,15 @@
                     <div class="h6 mb-0">${stats.total_found || 0}</div>
                 </div>
                 <div class="col">
+                    <small class="text-muted">Filtered Out</small>
+                    <div class="h6 mb-0">${stats.filtered_links || 0}</div>
+                </div>
+                <div class="col">
                     <small class="text-muted">BS4 Success</small>
                     <div class="h6 mb-0">${stats.beautifulsoup_success || 0}</div>
                 </div>
                 <div class="col">
-                    <small class="text-muted">Selenium Fallback</small>
+                    <small class="text-muted">Selenium</small>
                     <div class="h6 mb-0">${stats.selenium_fallback || 0}</div>
                 </div>
             </div>
@@ -231,143 +260,251 @@
                 const page = parseInt(link.dataset.page);
                 if (!isNaN(page) && page >= 1 && page <= totalPages && page !== currentPage) {
                     currentPage = page;
-                    paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
+                    const resultsToShow = isFilterActive ? filteredResults : allResults;
+                    paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
                     document.getElementById('results-content').innerHTML = renderResults(paginatedResults, (currentPage - 1) * itemsPerPage);
                     renderPagination(totalPages, currentPage);
-                    attachCheckboxHandlers();
+                    attachCheckboxHandlers(); // This will maintain the selection state
                 }
             });
         });
     }
 
     function attachCheckboxHandlers() {
-        const markAllCheckbox = document.getElementById('mark-all-checkbox');
-        const checkboxes = document.querySelectorAll('.result-checkbox');
         const actionButtonsContainer = document.getElementById('action-buttons-container');
+        const checkboxes = document.querySelectorAll('.result-checkbox');
 
         if (checkboxes.length > 0) {
             actionButtonsContainer.style.display = 'flex';
             actionButtonsContainer.innerHTML = `
-                <button class="btn btn-primary btn-sm" id="save-selected-btn">
-                    <i class="bi bi-save"></i> Save Selected
-                </button>
-                <button class="btn btn-outline-success btn-sm" id="export-selected-btn">
-                    <i class="bi bi-download"></i> Export Selected
-                </button>
-                <div class="dropdown">
-                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                        <i class="bi bi-download"></i> Export All
+                <div class="d-flex align-items-center">
+                    <div class="form-check me-3">
+                        <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
+                        <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
+                    </div>
+                    <button class="btn btn-success btn-sm me-2" id="save-selected-btn">
+                        <i class="bi bi-save"></i> Save Selected
                     </button>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item export-all" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> CSV</a></li>
-                        <li><a class="dropdown-item export-all" href="#" data-format="json"><i class="bi bi-filetype-json"></i> JSON</a></li>
-                        <li><a class="dropdown-item export-all" href="#" data-format="txt"><i class="bi bi-filetype-txt"></i> Text</a></li>
-                    </ul>
+                    <button class="btn btn-outline-primary btn-sm me-2" id="export-selected-btn">
+                        <i class="bi bi-download"></i> Export Selected
+                    </button>
+                </div>
+                <div class="d-flex align-items-center">
+                    <span class="text-muted me-2 small" id="filtered-count">Showing all results</span>
+                    <button class="btn btn-outline-info btn-sm me-2" id="show-filters-btn">
+                        <i class="bi bi-funnel"></i> URL Filters
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" id="parse-with-filters-btn">
+                        <i class="bi bi-play-circle"></i> Parse with Filters
+                    </button>
                 </div>
             `;
             
-            // Add event listeners for the new buttons
-            document.getElementById('export-selected-btn').addEventListener('click', () => {
-                if (!selectedItems.size) {
-                    alert('Please select URLs to export');
-                    return;
+            // Use event delegation for dynamically created buttons
+            setTimeout(() => {
+                // Export Selected button
+                const exportSelectedBtn = document.getElementById('export-selected-btn');
+                if (exportSelectedBtn) {
+                    const newExportBtn = exportSelectedBtn.cloneNode(true);
+                    exportSelectedBtn.parentNode.replaceChild(newExportBtn, exportSelectedBtn);
+                    newExportBtn.addEventListener('click', handleExportSelected);
                 }
-                // Show format selection for selected items
-                showExportFormatSelection('selected');
-            });
-            
-            // Add event listeners for export all dropdown
-            document.querySelectorAll('.export-all').forEach(item => {
-                item.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const format = e.target.getAttribute('data-format');
-                    exportUrls(format);
-                });
-            });
+                
+                // Parse with Filters button
+                const parseWithFiltersBtn = document.getElementById('parse-with-filters-btn');
+                if (parseWithFiltersBtn) {
+                    const newParseBtn = parseWithFiltersBtn.cloneNode(true);
+                    parseWithFiltersBtn.parentNode.replaceChild(newParseBtn, parseWithFiltersBtn);
+                    newParseBtn.addEventListener('click', startFilteredParsing);
+                }
+                
+                // Show Filters button
+                const showFiltersBtn = document.getElementById('show-filters-btn');
+                if (showFiltersBtn) {
+                    const newShowBtn = showFiltersBtn.cloneNode(true);
+                    showFiltersBtn.parentNode.replaceChild(newShowBtn, showFiltersBtn);
+                    newShowBtn.addEventListener('click', toggleFilterPanel);
+                }
+
+                // Mark All checkbox
+                const markAllCheckbox = document.getElementById('mark-all-checkbox');
+                if (markAllCheckbox) {
+                    const newMarkAll = markAllCheckbox.cloneNode(true);
+                    markAllCheckbox.parentNode.replaceChild(newMarkAll, markAllCheckbox);
+                    newMarkAll.addEventListener('change', handleMarkAllChange);
+                }
+
+                // Save Selected button
+                const saveSelectedBtn = document.getElementById('save-selected-btn');
+                if (saveSelectedBtn) {
+                    const newSaveBtn = saveSelectedBtn.cloneNode(true);
+                    saveSelectedBtn.parentNode.replaceChild(newSaveBtn, saveSelectedBtn);
+                    newSaveBtn.addEventListener('click', handleSaveSelected);
+                }
+
+            }, 0);
             
         } else {
             actionButtonsContainer.style.display = 'none';
         }
 
+        // Individual checkbox handlers
         checkboxes.forEach(cb => {
-            cb.checked = selectedItems.has(cb.dataset.id);
-            cb.onchange = () => {
-                if (cb.checked) selectedItems.add(cb.dataset.id);
-                else selectedItems.delete(cb.dataset.id);
+            // Remove any existing event listeners to prevent duplicates
+            const newCheckbox = cb.cloneNode(true);
+            cb.parentNode.replaceChild(newCheckbox, cb);
+            
+            // Add fresh event listener
+            newCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    selectedItems.add(this.dataset.id);
+                } else {
+                    selectedItems.delete(this.dataset.id);
+                }
                 updateMarkAllCheckbox();
-            };
+            });
+            
+            // Set initial state - AUTO CHECK ALL RESULTS BY DEFAULT
+            newCheckbox.checked = true;
+            selectedItems.add(newCheckbox.dataset.id);
         });
 
-        if (markAllCheckbox) {
-            markAllCheckbox.onchange = () => {
-                const checked = markAllCheckbox.checked;
-                checkboxes.forEach(cb => { 
-                    cb.checked = checked; 
-                    if (checked) selectedItems.add(cb.dataset.id);
-                    else selectedItems.delete(cb.dataset.id);
-                });
-            };
-            
-            updateMarkAllCheckbox();
-        }
+        updateMarkAllCheckbox();
+    }
 
-        const saveBtn = document.getElementById('save-selected-btn');
-        if (saveBtn) {
-            saveBtn.onclick = () => {
-                if (!selectedItems.size) return alert('Select at least one item');
-                showSavePanel();
-            };
+    // Event handler functions
+    function handleExportSelected() {
+        if (!selectedItems.size) {
+            alert('Please select URLs to export');
+            return;
+        }
+        exportSelectedUrls('csv');
+    }
+
+    function handleMarkAllChange(e) {
+        const checked = e.target.checked;
+        
+        if (checked) {
+            // Mark ALL results from ALL pages
+            const allResultsToShow = isFilterActive ? filteredResults : allResults;
+            selectedItems.clear();
+            
+            // Add all result IDs to selectedItems
+            allResultsToShow.forEach((_, index) => {
+                selectedItems.add(index.toString());
+            });
+            
+            // Check all visible checkboxes
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            checkboxes.forEach(cb => { 
+                cb.checked = true;
+            });
+        } else {
+            // Unmark ALL results from ALL pages
+            selectedItems.clear();
+            
+            // Uncheck all visible checkboxes
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            checkboxes.forEach(cb => { 
+                cb.checked = false;
+            });
         }
     }
-    
+
+    function handleSaveSelected() {
+        if (!selectedItems.size) {
+            alert('Please select at least one URL to save');
+            return;
+        }
+        showSavePanel();
+    }
+
     function updateMarkAllCheckbox() {
         const markAllCheckbox = document.getElementById('mark-all-checkbox');
-        const checkboxes = document.querySelectorAll('.result-checkbox');
+        const allResultsToShow = isFilterActive ? filteredResults : allResults;
         
-        if (!markAllCheckbox || checkboxes.length === 0) return;
+        if (!markAllCheckbox || allResultsToShow.length === 0) return;
         
-        const allChecked = Array.from(checkboxes).every(c => c.checked);
-        const someChecked = Array.from(checkboxes).some(c => c.checked);
-        markAllCheckbox.checked = allChecked;
-        markAllCheckbox.indeterminate = someChecked && !allChecked;
+        // Check if ALL results across all pages are selected
+        const allSelected = allResultsToShow.length === selectedItems.size;
+        const someSelected = selectedItems.size > 0;
+        
+        markAllCheckbox.checked = allSelected;
+        markAllCheckbox.indeterminate = someSelected && !allSelected;
     }
 
     async function fetchCrawlResults(sessionId) {
         try {
             const response = await fetch(`${API_BASE_URL}/api/get-crawl-results/?session_id=${sessionId}`);
             const data = await response.json();
-            
+
             if (response.ok && data.results) {
-                data.results.forEach(update => {
+                for (const update of data.results) {
                     renderRealTimeUpdate(update);
-                    
+
                     if (update.type === 'link_found') {
-                        // Add new link to results
                         allResults.push(update.link);
-                        
-                        // Update results display
-                        currentPage = 1;
-                        paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
-                        document.getElementById('results-content').innerHTML = renderResults(paginatedResults, (currentPage - 1) * itemsPerPage);
-                        
-                        const totalPages = Math.ceil(allResults.length / itemsPerPage);
-                        renderPagination(totalPages, currentPage);
-                        attachCheckboxHandlers();
-                        
-                        // Update progress
+
+                        if (isCrawling) {
+                            const now = Date.now();
+                            const resultsContainer = document.getElementById('results-content');
+
+                            if (typeof window.lastRenderedIndex === 'undefined')
+                                window.lastRenderedIndex = 0;
+
+                            const newLinks = allResults.slice(window.lastRenderedIndex);
+
+                            const shouldRender =
+                                now - lastRenderTime > RENDER_INTERVAL ||
+                                newLinks.length >= 20;
+
+                            if (shouldRender && newLinks.length > 0) {
+                                const startIndex = window.lastRenderedIndex;
+                                const endIndex = Math.min(allResults.length, startIndex + 20); // cap to 20
+                                const batchToRender = allResults.slice(startIndex, endIndex);
+
+                                resultsContainer.insertAdjacentHTML(
+                                    'beforeend',
+                                    renderResults(batchToRender, startIndex)
+                                );
+
+                                attachCheckboxHandlers();
+
+                                resultsContainer.scrollTop = resultsContainer.scrollHeight;
+
+                                const totalBadge = document.getElementById('total-links-badge');
+                                if (totalBadge) totalBadge.textContent = allResults.length;
+
+                                window.lastRenderedIndex = endIndex;
+                                lastRenderTime = now;
+
+                                // Yield control to the browser (prevents freeze)
+                                await new Promise(requestAnimationFrame);
+                            }
+                        } else {
+                            currentPage = 1;
+                            paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
+                            document.getElementById('results-content').innerHTML = renderResults(paginatedResults, 0);
+
+                            const totalPages = Math.ceil(allResults.length / itemsPerPage);
+                            renderPagination(totalPages, currentPage);
+                            attachCheckboxHandlers();
+                        }
+
                         updateProgressBar(allResults.length);
                     }
-                    
+
                     if (update.type === 'complete') {
                         stopCrawling();
                     }
-                });
 
-                // Update stats
-                if (data.stats) {
-                    updateProgressStats(data.stats);
+                    // Small delay between updates to avoid DOM thrashing
+                    await new Promise(resolve => setTimeout(resolve, 20));
                 }
+
+                if (data.stats) updateProgressStats(data.stats);
             }
+
         } catch (error) {
             console.error('Error fetching crawl results:', error);
         }
@@ -410,6 +547,7 @@
         
         isCrawling = false;
         currentSessionId = null;
+        isParsingWithFilters = false;
         
         if (resultsInterval) {
             clearInterval(resultsInterval);
@@ -438,6 +576,313 @@
         if (progressBar) {
             progressBar.classList.remove('progress-bar-animated');
             progressBar.classList.add('bg-success');
+        }
+
+        if (allResults.length) {
+            currentPage = 1;
+            paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
+            document.getElementById('results-content').innerHTML = renderResults(paginatedResults, 0);
+
+            const totalPages = Math.ceil(allResults.length / itemsPerPage);
+            renderPagination(totalPages, currentPage);
+            attachCheckboxHandlers();
+            
+            // AUTO-SELECT ALL RESULTS WHEN CRAWL COMPLETES
+            selectedItems.clear();
+            allResults.forEach((_, index) => {
+                selectedItems.add(index.toString());
+            });
+            
+            // Update all checkboxes to reflect the selection
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            
+            updateMarkAllCheckbox();
+        }
+    }
+
+    // FILTER FUNCTIONS
+    function getCurrentFilters() {
+        return {
+            linkType: document.getElementById('link-type-filter').value,
+            depth: document.getElementById('depth-filter').value,
+            urlContains: document.getElementById('url-contains-filter').value,
+            urlExcludes: document.getElementById('url-excludes-filter').value,
+            textContains: document.getElementById('text-contains-filter').value,
+            domain: document.getElementById('domain-filter').value,
+            regex: document.getElementById('regex-filter').value,
+            caseSensitive: document.getElementById('case-sensitive').checked,
+            invertFilter: document.getElementById('invert-filter').checked
+        };
+    }
+
+    function applyDisplayFilters() {
+        const filters = getCurrentFilters();
+        currentFilters = filters;
+        
+        filteredResults = allResults.filter(item => {
+            let matches = true;
+
+            // Link type filter
+            if (filters.linkType !== 'all') {
+                if (filters.linkType === 'internal' && !item.is_internal) matches = false;
+                if (filters.linkType === 'external' && !item.is_external) matches = false;
+            }
+
+            // Depth filter
+            if (filters.depth !== 'all') {
+                const depth = item.depth || 0;
+                if (filters.depth === '3' && depth < 3) matches = false;
+                else if (parseInt(filters.depth) !== depth) matches = false;
+            }
+
+            // URL contains filter
+            if (filters.urlContains) {
+                const url = filters.caseSensitive ? item.url : item.url.toLowerCase();
+                const search = filters.caseSensitive ? filters.urlContains : filters.urlContains.toLowerCase();
+                if (!url.includes(search)) matches = false;
+            }
+
+            // URL excludes filter
+            if (filters.urlExcludes) {
+                const excludes = filters.urlExcludes.split(',').map(ex => ex.trim()).filter(ex => ex);
+                const url = filters.caseSensitive ? item.url : item.url.toLowerCase();
+                for (const exclude of excludes) {
+                    const excludeTerm = filters.caseSensitive ? exclude : exclude.toLowerCase();
+                    if (url.includes(excludeTerm)) {
+                        matches = false;
+                        break;
+                    }
+                }
+            }
+
+            // Text contains filter
+            if (filters.textContains) {
+                const text = filters.caseSensitive ? (item.text || '') : (item.text || '').toLowerCase();
+                const search = filters.caseSensitive ? filters.textContains : filters.textContains.toLowerCase();
+                if (!text.includes(search)) matches = false;
+            }
+
+            // Domain filter
+            if (filters.domain) {
+                const domain = item.domain || new URL(item.url).hostname;
+                const searchDomain = filters.caseSensitive ? filters.domain : filters.domain.toLowerCase();
+                if (!domain.includes(searchDomain)) matches = false;
+            }
+
+            // Regex filter
+            if (filters.regex) {
+                try {
+                    const regex = new RegExp(filters.regex, filters.caseSensitive ? '' : 'i');
+                    if (!regex.test(item.url)) matches = false;
+                } catch (e) {
+                    console.error('Invalid regex pattern:', e);
+                    matches = false;
+                }
+            }
+
+            // Invert filter if needed
+            if (filters.invertFilter) {
+                matches = !matches;
+            }
+
+            return matches;
+        });
+
+        isFilterActive = Object.values(filters).some(value => 
+            value !== 'all' && value !== '' && value !== false
+        );
+
+        // Update display
+        currentPage = 1;
+        const resultsToShow = isFilterActive ? filteredResults : allResults;
+        paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
+        
+        document.getElementById('results-content').innerHTML = renderResults(
+            paginatedResults, 
+            (currentPage - 1) * itemsPerPage
+        );
+        
+        const totalPages = Math.ceil(resultsToShow.length / itemsPerPage);
+        renderPagination(totalPages, currentPage);
+        attachCheckboxHandlers();
+        
+        // Update filtered count
+        updateFilteredCount();
+    }
+
+    function updateFilteredCount() {
+        const filteredCount = document.getElementById('filtered-count');
+        if (!filteredCount) return;
+
+        if (isFilterActive) {
+            filteredCount.textContent = `Showing ${filteredResults.length} of ${allResults.length} results`;
+            filteredCount.className = 'text-info me-2 small fw-bold';
+        } else {
+            filteredCount.textContent = `Showing all ${allResults.length} results`;
+            filteredCount.className = 'text-muted me-2 small';
+        }
+    }
+
+    function clearFilters() {
+        document.getElementById('link-type-filter').value = 'all';
+        document.getElementById('depth-filter').value = 'all';
+        document.getElementById('url-contains-filter').value = '';
+        document.getElementById('url-excludes-filter').value = '';
+        document.getElementById('text-contains-filter').value = '';
+        document.getElementById('domain-filter').value = '';
+        document.getElementById('regex-filter').value = '';
+        document.getElementById('case-sensitive').checked = false;
+        document.getElementById('invert-filter').checked = false;
+
+        currentFilters = {
+            linkType: 'all',
+            depth: 'all',
+            urlContains: '',
+            urlExcludes: '',
+            textContains: '',
+            domain: '',
+            regex: '',
+            caseSensitive: false,
+            invertFilter: false
+        };
+
+        isFilterActive = false;
+        applyDisplayFilters();
+    }
+
+    function toggleFilterPanel() {
+        const filterPanel = document.getElementById('filter-controls');
+        if (filterPanel.style.display === 'none') {
+            filterPanel.style.display = 'block';
+        } else {
+            filterPanel.style.display = 'none';
+        }
+    }
+
+    async function startFilteredParsing() {
+        const url = document.getElementById('url-input').value.trim();
+        const depth = document.getElementById('url-depth-input').value || 2;
+        const filters = getCurrentFilters();
+        
+        if (!url) {
+            alert('Please enter a URL');
+            return;
+        }
+
+        if (isCrawling) {
+            return alert('Crawling is already in progress');
+        }
+
+        // Reset state
+        allResults = [];
+        selectedItems.clear();
+        currentPage = 1;
+        isCrawling = true;
+        isParsingWithFilters = true;
+
+        // Update UI for crawling state
+        const searchBtn = document.getElementById("search-url-btn");
+        searchBtn.disabled = true;
+        searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Crawling with Filters...';
+        
+        // Add stop button if not exists
+        let stopBtn = document.getElementById("stop-crawl-btn");
+        if (!stopBtn) {
+            stopBtn = document.createElement('button');
+            stopBtn.id = 'stop-crawl-btn';
+            stopBtn.className = 'btn btn-danger btn-sm ms-2';
+            stopBtn.innerHTML = '<i class="bi bi-stop-fill"></i> Stop';
+            stopBtn.onclick = stopCrawling;
+            searchBtn.parentNode.appendChild(stopBtn);
+        }
+        stopBtn.style.display = 'inline-block';
+
+        // Show control panels
+        document.getElementById('control-panel').style.display = 'block';
+        document.getElementById('console-stats').style.display = 'block';
+        document.getElementById('filter-controls').style.display = 'block';
+
+        // Clear previous results and setup new UI
+        const resultsContainer = document.getElementById('results-container');
+        resultsContainer.innerHTML = `
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Filtered Crawling Progress</h6>
+                    <small class="text-muted">Running: <span id="running-time">0s</span></small>
+                </div>
+                <div class="progress mb-3">
+                    <div id="crawl-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" 
+                         role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        Starting filtered crawling...
+                    </div>
+                </div>
+                <div id="crawl-stats" class="mb-3"></div>
+            </div>
+            <div id="realtime-status" class="realtime-status mb-3" style="max-height: 300px; overflow-y: auto;"></div>
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">Found Links (Filtered) <span class="badge bg-warning" id="total-links-badge">0</span></h6>
+                </div>
+                <div class="card-body">
+                    <div id="results-content"></div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('action-buttons-container').style.display = 'none';
+
+        try {
+            // Start filtered crawling session
+            const response = await fetch(`${API_BASE_URL}/api/start-url-crawl/`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${localStorage.getItem("accessToken")}`
+                },
+                body: JSON.stringify({
+                    url: url,
+                    max_depth: depth,
+                    use_selenium: true,
+                    filters: filters  // Send filters to backend
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to start filtered crawling');
+            }
+
+            currentSessionId = data.session_id;
+
+            // Add filter info to real-time status
+            const statusContainer = document.getElementById('realtime-status');
+            const filterInfo = document.createElement('div');
+            filterInfo.className = 'alert alert-info alert-dismissible fade show mb-2';
+            filterInfo.innerHTML = `
+                <strong>Filtered Crawling Started</strong><br>
+                <small>Only links matching your filter criteria will be followed and parsed.</small>
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+            `;
+            statusContainer.appendChild(filterInfo);
+
+            // Start polling for results
+            resultsInterval = setInterval(() => {
+                fetchCrawlResults(currentSessionId);
+            }, 1000);
+
+            // Start polling for status
+            statusInterval = setInterval(() => {
+                fetchCrawlStatus(currentSessionId);
+            }, 2000);
+
+        } catch (e) {
+            console.error(e);
+            resultsContainer.innerHTML = `<div class="alert alert-danger">Failed to start filtered crawling: ${e.message}</div>`;
+            stopCrawling();
         }
     }
 
@@ -562,7 +1007,8 @@
 
     // Export Functions
     function exportUrls(format) {
-        if (!allResults.length) {
+        const urlsToExport = isFilterActive ? filteredResults : allResults;
+        if (!urlsToExport.length) {
             alert('No URLs to export');
             return;
         }
@@ -573,23 +1019,24 @@
         
         switch (format) {
             case 'csv':
-                content = 'URL,Text,Type,Depth,Source URL\n';
-                allResults.forEach(item => {
+                content = 'URL,Text,Type,Depth,Source URL,Domain\n';
+                urlsToExport.forEach(item => {
                     const text = (item.text || '').replace(/"/g, '""');
                     const sourceUrl = (item.source_url || '').replace(/"/g, '""');
-                    content += `"${item.url}","${text}","${item.is_internal ? 'Internal' : 'External'}","${item.depth || ''}","${sourceUrl}"\n`;
+                    const domain = item.domain || new URL(item.url).hostname;
+                    content += `"${item.url}","${text}","${item.is_internal ? 'Internal' : 'External'}","${item.depth || ''}","${sourceUrl}","${domain}"\n`;
                 });
                 filename = `urls_${timestamp}.csv`;
                 break;
                 
             case 'json':
-                content = JSON.stringify(allResults, null, 2);
+                content = JSON.stringify(urlsToExport, null, 2);
                 filename = `urls_${timestamp}.json`;
                 break;
                 
             case 'txt':
-                allResults.forEach(item => {
-                    content += `${item.url}\n`;
+                urlsToExport.forEach(item => {
+                    content += `URL: ${item.url}\n`;
                     if (item.text) content += `Title: ${item.text}\n`;
                     content += `Type: ${item.is_internal ? 'Internal' : 'External'}\n`;
                     if (item.depth !== undefined) content += `Depth: ${item.depth}\n`;
@@ -620,11 +1067,12 @@
         
         switch (format) {
             case 'csv':
-                content = 'URL,Text,Type,Depth,Source URL\n';
+                content = 'URL,Text,Type,Depth,Source URL,Domain\n';
                 itemsToExport.forEach(item => {
                     const text = (item.text || '').replace(/"/g, '""');
                     const sourceUrl = (item.source_url || '').replace(/"/g, '""');
-                    content += `"${item.url}","${text}","${item.is_internal ? 'Internal' : 'External'}","${item.depth || ''}","${sourceUrl}"\n`;
+                    const domain = item.domain || new URL(item.url).hostname;
+                    content += `"${item.url}","${text}","${item.is_internal ? 'Internal' : 'External'}","${item.depth || ''}","${sourceUrl}","${domain}"\n`;
                 });
                 filename = `selected_urls_${timestamp}.csv`;
                 break;
@@ -636,7 +1084,7 @@
                 
             case 'txt':
                 itemsToExport.forEach(item => {
-                    content += `${item.url}\n`;
+                    content += `URL: ${item.url}\n`;
                     if (item.text) content += `Title: ${item.text}\n`;
                     content += `Type: ${item.is_internal ? 'Internal' : 'External'}\n`;
                     if (item.depth !== undefined) content += `Depth: ${item.depth}\n`;
@@ -671,21 +1119,16 @@
         URL.revokeObjectURL(url);
     }
 
-    function showExportFormatSelection(type) {
-        // Simple format selection - you could enhance this with a modal
-        const format = prompt(`Select export format for ${type} URLs:\n\nEnter: csv, json, or txt`, 'csv');
-        if (format) {
-            const normalizedFormat = format.toLowerCase().trim();
-            if (['csv', 'json', 'txt'].includes(normalizedFormat)) {
-                if (type === 'selected') {
-                    exportSelectedUrls(normalizedFormat);
-                } else {
-                    exportUrls(normalizedFormat);
-                }
-            } else {
-                alert('Invalid format. Please enter: csv, json, or txt');
-            }
-        }
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
     }
 
     function init() {
@@ -694,27 +1137,79 @@
         const depthInput = document.getElementById("url-depth-input");
         const resultsContainer = document.getElementById("results-container");
         const actionButtonsContainer = document.getElementById("action-buttons-container");
-        const projectSelect = document.getElementById("project-select");
 
         if (!searchBtn) return;
 
         // Initialize save panel
         initSavePanel();
 
-        // Add global export event listeners
-        document.addEventListener('click', function(e) {
-            if (e.target.classList.contains('export-all') || e.target.parentElement.classList.contains('export-all')) {
-                e.preventDefault();
-                const target = e.target.classList.contains('export-all') ? e.target : e.target.parentElement;
-                const format = target.getAttribute('data-format');
-                exportUrls(format);
+        // Add filter event listeners
+        document.getElementById('apply-filters-btn').addEventListener('click', applyDisplayFilters);
+        document.getElementById('clear-filters-btn').addEventListener('click', clearFilters);
+        document.getElementById('show-filters-btn').addEventListener('click', toggleFilterPanel);
+
+        // Real-time filtering on input changes
+        const filterInputs = [
+            'url-contains-filter', 'url-excludes-filter', 'text-contains-filter', 'domain-filter', 'regex-filter'
+        ];
+        
+        filterInputs.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('input', debounce(applyDisplayFilters, 500));
             }
-            
-            if (e.target.classList.contains('export-selected') || e.target.parentElement.classList.contains('export-selected')) {
-                e.preventDefault();
-                const target = e.target.classList.contains('export-selected') ? e.target : e.target.parentElement;
-                const format = target.getAttribute('data-format');
-                exportSelectedUrls(format);
+        });
+
+        // Filter on select changes
+        const filterSelects = ['link-type-filter', 'depth-filter'];
+        filterSelects.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', applyDisplayFilters);
+            }
+        });
+
+        // Filter on checkbox changes
+        const filterCheckboxes = ['case-sensitive', 'invert-filter'];
+        filterCheckboxes.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', applyDisplayFilters);
+            }
+        });
+
+        // Global export buttons using event delegation
+        document.addEventListener('click', function(e) {
+            // Handle Write to File button (TXT export)
+            if (e.target.id === 'write-to-file-btn' || e.target.closest('#write-to-file-btn')) {
+                const urlsToExport = isFilterActive ? filteredResults : allResults;
+                if (urlsToExport.length === 0) {
+                    alert('No URLs to export');
+                    return;
+                }
+                exportUrls('txt');
+            }
+        });
+
+        // Control panel buttons
+        document.getElementById('clear-queue-btn').addEventListener('click', () => {
+            if (confirm('Clear all queued URLs?')) {
+                // Implementation depends on your backend
+                console.log('Clear queue functionality');
+            }
+        });
+
+        document.getElementById('clear-results-btn').addEventListener('click', () => {
+            if (confirm('Clear all results?')) {
+                allResults = [];
+                filteredResults = [];
+                selectedItems.clear();
+                document.getElementById('results-content').innerHTML = '';
+                document.getElementById('action-buttons-container').style.display = 'none';
+                document.getElementById('filter-controls').style.display = 'none';
+                document.getElementById('control-panel').style.display = 'none';
+                document.getElementById('console-stats').style.display = 'none';
+                updateFilteredCount();
             }
         });
 
@@ -724,12 +1219,10 @@
         })
         .then(res => res.json())
         .then(projects => {
-            projectSelect.innerHTML = `<option value="">Select Project</option>`;
-            projects.forEach(p => {
-                projectSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
-            });
+            // Project loading if needed
         });
 
+        // Regular crawling (without filters)
         searchBtn.addEventListener("click", async () => {
             const url = (urlInput.value || '').trim();
             const depth = depthInput.value || 2;
@@ -748,6 +1241,7 @@
             selectedItems.clear();
             currentPage = 1;
             isCrawling = true;
+            isParsingWithFilters = false;
 
             // Update UI for crawling state
             searchBtn.disabled = true;
@@ -764,6 +1258,11 @@
                 searchBtn.parentNode.appendChild(stopBtn);
             }
             stopBtn.style.display = 'inline-block';
+
+            // Show control panels
+            document.getElementById('control-panel').style.display = 'block';
+            document.getElementById('console-stats').style.display = 'block';
+            document.getElementById('filter-controls').style.display = 'block';
 
             // Clear previous results and setup new UI
             resultsContainer.innerHTML = `
@@ -794,7 +1293,7 @@
             actionButtonsContainer.style.display = 'none';
 
             try {
-                // Start crawling session
+                // Start crawling session (without filters)
                 const response = await fetch(`${API_BASE_URL}/api/start-url-crawl/`, {
                     method: 'POST',
                     headers: { 
@@ -804,8 +1303,7 @@
                     body: JSON.stringify({
                         url: url,
                         max_depth: depth,
-                        max_pages: 100,
-                        use_selenium: true // Enable Selenium fallback
+                        use_selenium: true
                     })
                 });
 
@@ -839,6 +1337,9 @@
         init, 
         exportUrls, 
         exportSelectedUrls,
-        stopCrawling
+        stopCrawling,
+        startFilteredParsing,
+        applyDisplayFilters,
+        clearFilters
     };
 }));

@@ -2,23 +2,183 @@
 <div class="urls-page py-4 px-3">
     <h2 class="text-center mb-4">Advanced URL Crawler</h2>
 
-
-
     <!-- URL search input -->
     <div class="d-flex justify-content-center mb-3">
         <div class="input-group w-50">
             <input id="url-input" type="text" class="form-control" placeholder="Enter URL (e.g., https://example.com)">
-            <input id="url-depth-input" type="number" class="form-control" value="2" min="1" max="5" placeholder="Depth" title="Crawling depth" hidden>
+            <input id="url-depth-input" type="number" class="form-control" value="2" min="1" max="5" placeholder="Depth" title="Crawling depth">
             <button id="search-url-btn" class="btn btn-primary">
                 <i class="bi bi-link-45deg"></i> Start Crawling
             </button>
         </div>
     </div>
 
-    <!-- Save message container -->
-    <div id="save-message-container" class="mb-3"></div>
+    <!-- Control Panel -->
+    <div class="card mb-3" id="control-panel" style="display: none;">
+        <div class="card-header bg-light py-2">
+            <h6 class="mb-0">Control</h6>
+        </div>
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-center">
+                <div class="col-auto">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="perform-scraping">
+                        <label class="form-check-label small" for="perform-scraping">Perform scraping when done</label>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-outline-primary btn-sm" id="write-to-file-btn">
+                        <i class="bi bi-save"></i> Write URLs to file
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-outline-secondary btn-sm" id="clear-queue-btn">
+                        <i class="bi bi-trash"></i> Clear Queue
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-outline-secondary btn-sm" id="clear-results-btn">
+                        <i class="bi bi-x-circle"></i> Clear Results
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    <!-- Results container -->
+    <!-- Console Stats -->
+    <div class="row mb-3" id="console-stats" style="display: none;">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-dark text-white py-2">
+                    <h6 class="mb-0">Console</h6>
+                </div>
+                <div class="card-body py-2">
+                    <div class="row text-center">
+                        <div class="col">
+                            <small class="text-muted">Threads</small>
+                            <div class="h6 mb-0">10</div>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Pause (ms)</small>
+                            <div class="h6 mb-0">0</div>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Segments</small>
+                            <div class="h6 mb-0">0-0</div>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Search Depth</small>
+                            <div class="h6 mb-0" id="search-depth">0</div>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Queue</small>
+                            <div class="h6 mb-0" id="queue-count">0</div>
+                        </div>
+                        <div class="col">
+                            <small class="text-muted">Results</small>
+                            <div class="h6 mb-0" id="result-count">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Filter Controls -->
+    <div class="row mb-3" id="filter-controls" style="display: none;">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header py-2 d-flex justify-content-between align-items-center" style="background-color: #1a3d4a;">
+                    <h6 class="mb-0">URL Filters</h6>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary me-1" id="apply-filters-btn">
+                            <i class="bi bi-funnel"></i> Apply Filters
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="clear-filters-btn">
+                            <i class="bi bi-x-circle"></i> Clear
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- Basic Filters -->
+                        <div class="col-md-6">
+                            <div class="row g-2">
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold">Link Type</label>
+                                    <select id="link-type-filter" class="form-select form-select-sm">
+                                        <option value="all">All Links</option>
+                                        <option value="internal">Internal Only</option>
+                                        <option value="external">External Only</option>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold">Depth Level</label>
+                                    <select id="depth-filter" class="form-select form-select-sm">
+                                        <option value="all">All Depths</option>
+                                        <option value="0">Depth 0</option>
+                                        <option value="1">Depth 1</option>
+                                        <option value="2">Depth 2</option>
+                                        <option value="3">Depth 3+</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advanced Filters -->
+                        <div class="col-md-6">
+                            <div class="row g-2">
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold">URL Contains</label>
+                                    <input type="text" id="url-contains-filter" class="form-control form-control-sm" placeholder="Substring to include...">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold">URL Excludes</label>
+                                    <input type="text" id="url-excludes-filter" class="form-control form-control-sm" placeholder="Substrings to exclude (comma-separated)">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Text Search -->
+                        <div class="col-12">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">Link Text Contains</label>
+                                    <input type="text" id="text-contains-filter" class="form-control form-control-sm" placeholder="Search in link text...">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">Domain Filter</label>
+                                    <input type="text" id="domain-filter" class="form-control form-control-sm" placeholder="Filter by domain...">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Regex and Advanced Options -->
+                        <div class="col-12">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">URL Regex Pattern</label>
+                                    <input type="text" id="regex-filter" class="form-control form-control-sm" placeholder="Regular expression pattern">
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check mt-4">
+                                        <input class="form-check-input" type="checkbox" id="case-sensitive">
+                                        <label class="form-check-label small" for="case-sensitive">Case Sensitive</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="invert-filter">
+                                        <label class="form-check-label small" for="invert-filter">Invert Filter</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Container -->
     <div id="results-container" class="mb-3">
         <div class="text-center text-muted">
             <p>Enter a URL and click "Start Crawling" to begin</p>
@@ -27,12 +187,26 @@
     </div>
 
     <!-- Action buttons -->
-    <div class="d-flex justify-content-center align-items-center mb-3" id="action-buttons-container" style="display:none;">
-        <div class="form-check me-3">
-            <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
-            <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
+    <div class="d-flex justify-content-between align-items-center mb-3" id="action-buttons-container" style="display:none;">
+        <div class="d-flex align-items-center">
+            <div class="form-check me-3">
+                <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
+                <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
+            </div>
+            <button id="save-selected-btn" class="btn btn-success btn-sm me-2">
+                <i class="bi bi-save"></i> Save Selected
+            </button>
+            <button id="export-selected-btn" class="btn btn-outline-primary btn-sm me-2">
+                <i class="bi bi-download"></i> Export Selected
+            </button>
         </div>
-        <button id="save-selected-btn" class="btn btn-success btn-sm">Save Selected</button>
+        
+        <div class="d-flex align-items-center">
+            <span class="text-muted me-2 small" id="filtered-count">Showing all results</span>
+            <button class="btn btn-outline-info btn-sm" id="show-filters-btn">
+                <i class="bi bi-funnel"></i> URL Filters
+            </button>
+        </div>
     </div>
 
     <!-- Pagination -->
@@ -73,45 +247,3 @@
 
 <!-- Overlay -->
 <div id="save-panel-overlay" class="save-panel-overlay"></div>
-
-<!-- Styles -->
-<style>
-.save-panel {
-    position: fixed;
-    top: 0;
-    right: -400px;
-    width: 400px;
-    height: 100%;
-    background: #fff;
-    border-left: 1px solid #ddd;
-    z-index: 1050;
-    transition: right 0.3s ease-in-out;
-    overflow-y: auto;
-    box-shadow: -2px 0 10px rgba(0,0,0,0.1);
-}
-.save-panel.show {
-    right: 0;
-}
-.save-panel-overlay {
-    display: none;
-    position: fixed;
-    top:0; left:0; right:0; bottom:0;
-    background: rgba(0,0,0,0.5);
-    z-index:1040;
-}
-.save-panel-overlay.show {
-    display: block;
-}
-.realtime-status .alert {
-    margin-bottom: 0.5rem;
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-}
-.progress {
-    height: 25px;
-}
-.progress-bar {
-    font-size: 0.8rem;
-    font-weight: 500;
-}
-</style>

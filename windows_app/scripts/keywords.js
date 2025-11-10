@@ -470,7 +470,7 @@
                             <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
                         </ul>
                     </div>
-                    <div id="links-counter" class="ms-3 px-2 py-1 bg-light border rounded small fw-bold">Links: ${allResults.length}</div>
+                    <div id="links-counter" class="ms-3 px-2 py-1 border rounded small fw-bold">Links: ${allResults.length}</div>
                 </div>
                 <div id="save-message-container" class="mt-2"></div>
                 <div id="results-content">${resultsHtml || '<p>No results.</p>'}</div>
@@ -604,6 +604,18 @@
 
                 const formData = new FormData();
                 formData.append('keywords_file', file);
+
+                const urlInclude = document.getElementById('url-include-filter').value;
+                const urlExclude = document.getElementById('url-exclude-filter').value;
+                const domainFilter = document.getElementById('domain-filter').value;
+                const fileTypeFilter = document.getElementById('filetype-filter').value;
+
+
+                // Append filters to FormData if they have values
+                if (urlInclude) formData.append('url_include', urlInclude);
+                if (urlExclude) formData.append('url_exclude', urlExclude);
+                if (domainFilter) formData.append('domain_filter', domainFilter);
+                if (fileTypeFilter) formData.append('file_type_filter', fileTypeFilter);
 
                 
 
@@ -740,32 +752,27 @@
 
                 window.bulkSearchController = new AbortController();
 
-                // Stop button functionality
-                // stopBtn.onclick = () => {
-                //     if (window.bulkSearchController) {
-                //         console.warn('⛔ Stopping bulk search...');
-                //         stopBtn.disabled = true;
-                //         stopBtn.textContent = 'Stopping...';
-                //         window.bulkSearchController.abort();
-                        
-                //         setTimeout(() => {
-                //             stopBtn.textContent = 'Stopped';
-                //             stopBtn.disabled = false;
-                //             stopBtn.style.display = 'none';
-                //         }, 600);
-
-                //         startButton.disabled = false;
-                //         startButton.innerHTML = originalText;
-                //     }
-                // };
-
                 stopBtn.onclick = () => {
-                    if (window.bulkSearchController) {
-                        console.warn('⛔ Stopping bulk search...');
-                        stopBtn.disabled = true;
-                        stopBtn.textContent = 'Stopping...';
-                        window.bulkSearchController.abort();
-                        
+                    if (!window.bulkSearchController) return;
+
+                    console.warn('⛔ Stopping bulk search...');
+                    stopBtn.disabled = true;
+                    stopBtn.textContent = 'Stopping...';
+
+                    // Abort frontend fetch
+                    window.bulkSearchController.abort();
+
+                    // 🔹 Send stop request to backend
+                    fetch(`${API_BASE_URL}/api/stop-bulk-search/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    })
+                    .then(res => res.json())
+                    .then(data => console.log('🛑 Bulk stop response:', data))
+                    .catch(err => console.error('⚠️ Bulk stop request failed:', err))
+                    .finally(() => {
                         setTimeout(() => {
                             stopBtn.textContent = 'Stopped';
                             stopBtn.disabled = false;
@@ -781,18 +788,17 @@
                             const progressContainer = document.getElementById('progress-container');
                             if (progressContainer) progressContainer.remove();
 
-                            // ✅ ADD THIS: Render paginated results with whatever was collected before stopping
+                            // ✅ Render paginated results with collected data
                             if (window.bulkResults && Object.keys(window.bulkResults).length > 0) {
                                 renderBulkPaginatedResults(1);
-                                
-                                // Re-initialize checkboxes after a short delay to ensure DOM is ready
+
+                                // Re-initialize checkboxes after a short delay
                                 setTimeout(() => {
                                     if (typeof initializeBulkSearchCheckboxes === 'function') {
                                         initializeBulkSearchCheckboxes();
                                     }
                                 }, 100);
                             } else {
-                                // If no results were collected, show a message
                                 resultsContainer.innerHTML = `
                                     <div class="alert alert-info mt-3">
                                         Search was stopped. No results were collected.
@@ -803,13 +809,13 @@
                             // Clean up abort controller
                             window.bulkSearchController = null;
                         }, 600);
-                    }
+                    });
                 };
 
                 try {
                     // Get the bulk limit from the input field
                     const bulkLimitInput = document.getElementById('bulk-limit-input');
-                    const bulkLimit = bulkLimitInput.value ? parseInt(bulkLimitInput.value) : 20; // Default to 20 if empty
+                    const bulkLimit = bulkLimitInput.value ? parseInt(bulkLimitInput.value) : 0; // Default to 20 if empty
                     const response = await fetch(`${API_BASE_URL}/api/bulk-keywords-search/?bulk_limit=${bulkLimit}`, {
                         method: 'POST',
                         headers: {
@@ -1538,6 +1544,9 @@
                     <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                     Searching...
                 `;
+                
+
+                console.log('Searching single search results')
 
                 // Auto-scroll to results container when search starts
                 setTimeout(() => {
@@ -1633,7 +1642,7 @@
                             <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
                         </ul>
                     </div>
-                    <div id="links-counter" class="ms-3 text-muted small">Links: 0</div>
+                    <div id="links-counter" class="links-counter ms-3 text-muted small">Links: 0</div>
                 `;
 
                 // Add export button event listeners
@@ -1739,120 +1748,229 @@
                 }
 
                 window.currentKeywordId = null;
+                console.log('limit given: ', depth)
 
                 // SSE connection
-                const evtSource = new EventSource(`${API_BASE_URL}/api/search-keywords/?q=${encodeURIComponent(keyword)}&limit=${depth}`);
+                // const evtSource = new EventSource(`${API_BASE_URL}/api/search-keywords/?q=${encodeURIComponent(keyword)}&limit=${depth}`);
+
+                // Create abort controller for the search
+                window.searchController = new AbortController();
 
                 stopBtn.onclick = () => {
-                    if (stopBtn.parentNode && stopBtn.parentNode.parentNode !== actionButtonsContainer) {
+                    if (window.searchController) {
+                        console.warn('⛔ Stopping search...');
+                        stopBtn.disabled = true;
+                        stopBtn.textContent = 'Stopping...';
+                        
+                        // Abort the fetch request
+                        window.searchController.abort();
+                        
+                        // Optional: Send stop request to backend
+                        fetch(`${API_BASE_URL}/api/stop_search/`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                keyword: keyword,
+                                filters: {
+                                    url_include: urlInclude,
+                                    url_exclude: urlExclude,
+                                    domain_filter: domainFilter,
+                                    file_type_filter: fileTypeFilter
+                                }
+                            })
+                        })
+                        .then(res => res.json())
+                        .then(data => console.log('🛑 Stop response:', data))
+                        .catch(err => console.error('⚠️ Stop request failed:', err))
+                        .finally(() => {
+                            // Reset UI
+                            setTimeout(() => {
+                                stopBtn.textContent = 'Stopped';
+                                stopBtn.disabled = false;
+                                stopBtn.style.display = 'none';
+                                
+                                searchBtn.disabled = false;
+                                searchBtn.innerHTML = 'Search';
+
+                                // Remove loading elements
+                                const loadingBlock = document.getElementById('loading-container');
+                                if (loadingBlock) loadingBlock.remove();
+                                const progressContainer = document.getElementById('progress-container');
+                                if (progressContainer) progressContainer.remove();
+                                
+                                // Render collected results if any
+                                if (window.lastResults && window.lastResults.length > 0) {
+                                    renderPaginatedResults(1);
+                                } else {
+                                    resultsContainer.innerHTML = `
+                                        <div class="alert alert-info mt-3">
+                                            Search was stopped. No results were collected.
+                                        </div>
+                                    `;
+                                }
+                            }, 600);
+                        });
+                    }
+                };
+
+                const requestBody = {
+                    q: keyword,
+                    limit: depth
+                };
+
+                const urlInclude = document.getElementById('url-include-filter').value;
+                const urlExclude = document.getElementById('url-exclude-filter').value;
+                const domainFilter = document.getElementById('domain-filter').value;
+                const fileTypeFilter = document.getElementById('filetype-filter').value;
+
+                // Add filters to request body if they have values
+                if (urlInclude) requestBody.url_include = urlInclude;
+                if (urlExclude) requestBody.url_exclude = urlExclude;
+                if (domainFilter) requestBody.domain_filter = domainFilter;
+                if (fileTypeFilter) requestBody.file_type_filter = fileTypeFilter;
+
+                console.log('Search request body:', requestBody);
+
+                if (actionButtonsContainer.style.display === 'none') {
+                    actionButtonsContainer.style.display = 'flex';
+                    
+                    // Add Stop button to action buttons container
+                    if (!document.getElementById('stop-search-btn')) {
                         const stopBtnWrapper = document.createElement('div');
                         stopBtnWrapper.className = 'ms-2';
                         stopBtnWrapper.appendChild(stopBtn);
                         actionButtonsContainer.appendChild(stopBtnWrapper);
                     }
+                    stopBtn.style.display = 'inline-block';
+                }
 
-                    if (evtSource) {
-                        console.warn('⛔ Stopping search stream...');
-                        stopBtn.disabled = true;
-                        stopBtn.textContent = 'Stopping...';
-                        evtSource.close();
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/search-keywords/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${localStorage.getItem("accessToken")}`
+                        },
+                        body: JSON.stringify(requestBody),
+                        signal: window.searchController.signal
+                    });
 
-                        // Reset UI properly
-                        setTimeout(() => {
-                            stopBtn.textContent = 'Stopped';
-                            stopBtn.disabled = false;
-                            stopBtn.style.display = 'none';
-                        }, 600);
-
-                        // Re-enable the Search button
-                        searchBtn.disabled = false;
-                        searchBtn.innerHTML = 'Search';
-
-                        // Remove the spinner and progress elements if they exist
-                        const loadingBlock = document.getElementById('loading-container');
-                        if (loadingBlock) loadingBlock.remove();
-                        const progressContainer = document.getElementById('progress-container');
-                        if (progressContainer) progressContainer.remove();
-                        
-                        // ✅ ADD THIS: Hide the streaming container and render paginated results
-                        treeContainerWrapper.style.display = 'none';
-                        actionButtonsContainer.style.display = 'none';
-                        
-                        // ✅ IMPORTANT: Clear any existing pagination first
-                        const existingPagination = document.getElementById('keyword-pagination');
-                        if (existingPagination) {
-                            existingPagination.remove();
-                        }
-                        
-                        // ✅ Render paginated results with collected data
-                        if (window.lastResults && window.lastResults.length > 0) {
-                            renderPaginatedResults(1);
-                        } else {
-                            resultsContainer.innerHTML = `
-                                <div class="alert alert-info mt-3">
-                                    Search was stopped. No results were collected.
-                                </div>
-                            `;
-                        }
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                };
 
-                evtSource.addEventListener('meta', (e) => {
-                    console.debug('SSE meta event raw data:', e.data);
-                    try {
-                        const d = JSON.parse(e.data);
-                        if (d.keyword && d.keyword.id) {
-                            window.currentKeywordId = d.keyword.id;
-                            window.currentKeyword = d.keyword;
-                            console.debug('client: got keyword from meta ->', window.currentKeywordId);
-                        }
-                    } catch (err) {
-                        console.error('Failed to parse meta event', err, e.data);
+                    if (!response.body) {
+                        throw new Error('ReadableStream not supported in this browser');
                     }
-                });
 
-                evtSource.onmessage = function(event) {
-                    try {
-                        const data = JSON.parse(event.data);
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
 
-                        // -------------- NEW: capture keyword context if server sends it --------------
-                        // Try several common property names the server might use
-                        if (data.keyword && data.keyword.id) {
-                            window.currentKeywordId = data.keyword.id;
-                            window.currentKeyword = data.keyword; // optional, store whole object
-                        } else if (data.keyword_id) {
-                            window.currentKeywordId = data.keyword_id;
-                        } else if (data.meta && data.meta.keyword_id) {
-                            window.currentKeywordId = data.meta.keyword_id;
+                    // Process the stream
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) {
+                            console.log('Stream finished by backend (EOF)');
+                            // mark EOF — actual cleanup will be handled by the done flag logic in processStreamData or after loop
+                            window.backendSignalledDone = true;
+                            break;
                         }
-                        // debugging: show when we get the id
-                        if (window.currentKeywordId) {
-                            console.debug('SSE: got keyword id ->', window.currentKeywordId);
+                        
+                        // Check if aborted
+                        // if (window.searchController.signal.aborted) {
+                        //     break;
+                        // }
+
+                        if (window.searchController && window.searchController.signal.aborted) {
+                            break;
                         }
-                        // ---------------------------------------------------------------------------
-
-                        const node = data.node;
-                        const progress = data.progress;
-
-                        if (actionButtonsContainer.style.display === 'none') {
-                            actionButtonsContainer.style.display = 'flex';
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        
+                        // Keep the last incomplete line in buffer
+                        buffer = lines.pop() || '';
+                        
+                        for (const line of lines) {
+                            if (line.trim() === '') continue;
                             
-                            // Add Stop button to action buttons container
-                            if (!document.getElementById('stop-search-btn')) {
-                                const stopBtnWrapper = document.createElement('div');
-                                stopBtnWrapper.className = 'ms-2';
-                                stopBtnWrapper.appendChild(stopBtn);
-                                actionButtonsContainer.appendChild(stopBtnWrapper);
+                            if (line.startsWith('event: ')) {
+                                const eventType = line.slice(7).trim();
+                                console.log('Event:', eventType);
+                                
+                                // Handle done event from server-sent events
+                                if (eventType === 'done') {
+                                    // mark that backend signalled completion; let processStreamData handle cleanup
+                                    console.log('Received done event from server');
+                                    // set a flag we can check later if needed
+                                    window.backendSignalledDone = true;
+                                    // Do not reset UI here — cleanup will happen inside processStreamData or after stream EOF
+                                }
+                            } else if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.slice(6));
+                                    processStreamData(data);
+                                } catch (e) {
+                                    console.error('Parse error:', e, 'Line:', line);
+                                }
                             }
-                            stopBtn.style.display = 'inline-block'; // Show it now
                         }
+                    }
 
-                        if (progress && typeof progress.current !== 'undefined') {
-                            const percent = progress.total ? Math.round((progress.current / progress.total) * 100) : 0;
-                            progressBar.style.width = percent + "%";
-                            progressBar.innerText = percent + "%";
+                    // Stream completed - additional cleanup
+                    console.log('Search completed');
+                    searchBtn.disabled = false;
+                    searchBtn.innerHTML = 'Search';
+
+                    // Final fallback - if we have results but pagination didn't show, render them
+                    setTimeout(() => {
+                        if (window.lastResults && window.lastResults.length > 0 && 
+                            !document.getElementById('results-content')) {
+                            console.log('Fallback: rendering paginated results');
+                            renderPaginatedResults(1);
                         }
+                    }, 1000);
+                    
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.log('Search was cancelled by user');
+                    } else {
+                        console.error('Stream processing error:', error);
+                        resultsContainer.innerHTML = `<p class="text-danger">Error: ${error.message}</p>`;
+                    }
+                } finally {
+                    // Clean up
+                    window.searchController = null;
+                }
 
+                // Function to process stream data (replaces your SSE event handlers)
+                function processStreamData(data) {
+                    // Handle meta event
+                    if (data.keyword && data.keyword.id) {
+                        window.currentKeywordId = data.keyword.id;
+                        window.currentKeyword = data.keyword;
+                        console.debug('client: got keyword from meta ->', window.currentKeywordId);
+                        return;
+                    }
+
+                    // Handle progress and node data
+                    const node = data.node;
+                    const progress = data.progress;
+
+                    if (progress && progressBar && typeof progress.current === 'number' && typeof progress.total === 'number' && progress.total > 0) {
+                        const percent = Math.round((progress.current / progress.total) * 100);
+                        progressBar.style.width = percent + "%";
+                        progressBar.innerText = percent + "%";
+                    } else if (progressBar && (typeof progress === 'undefined' || progress.total === 0)) {
+                        // If total is unknown (0) we can show an indeterminate state — keep the bar at 0% or a pulsing class
+                        progressBar.style.width = "0%";
+                        progressBar.innerText = "…";
+                    }
+
+                    if (node) {
                         window.lastResults.push(node);
                         renderNode(node, treeContainer);
                         updateLinksCounter();
@@ -1867,86 +1985,61 @@
                             window.scrollObserverActive = true;
                         }
 
-                        // Force immediate scroll for each new result
+                        // Auto-scroll
                         if (autoScroll) {
-                            // Use multiple methods to ensure scrolling works
                             setTimeout(() => {
                                 treeContainerWrapper.scrollTo({
                                     top: treeContainerWrapper.scrollHeight,
                                     behavior: 'instant'
                                 });
-                                
-                                // Backup method
                                 treeContainerWrapper.scrollTop = treeContainerWrapper.scrollHeight;
-                                
-                                // Another backup with different timing
-                                setTimeout(() => {
-                                    treeContainerWrapper.scrollTop = treeContainerWrapper.scrollHeight;
-                                }, 50);
                             }, 10);
                         }
-
-                        console.log('New result added. Scroll position:', {
-                            scrollTop: treeContainerWrapper.scrollTop,
-                            clientHeight: treeContainerWrapper.clientHeight,
-                            scrollHeight: treeContainerWrapper.scrollHeight,
-                            autoScroll: autoScroll,
-                            resultsCount: window.lastResults.length
-                        });
-
-                    } catch (err) {
-                        console.error("SSE parse error:", err, event.data);
                     }
-                };
 
-                evtSource.addEventListener("done", function(event) {
-                    // Hide stop button when done
-                    if (stopBtn) {
-                        stopBtn.style.display = 'none';
-                    }
-                    try {
-                        // sometimes servers put summary/meta into the done event
-                        if (event.data) {
-                            try {
-                                const doneData = JSON.parse(event.data);
-                                if (doneData.keyword && doneData.keyword.id) window.currentKeywordId = doneData.keyword.id;
-                                else if (doneData.keyword_id) window.currentKeywordId = doneData.keyword_id;
-                            } catch (e) {
-                                // not JSON — ignore
-                            }
+                    // Handle done event - FIXED: Check for the actual done signal from backend
+                    // Consider "done" only if explicitly signalled or if progress has a meaningful total (> 0)
+                    const explicitDone = (data.message === 'done' || data.event === 'done' || window.backendSignalledDone);
+
+                    const progressComplete = (() => {
+                        if (!progress) return false;
+                        // Only treat as complete if total is a positive number
+                        if (typeof progress.total === 'number' && progress.total > 0 &&
+                            typeof progress.current === 'number' && progress.current >= progress.total) {
+                            return true;
                         }
-                    } catch (e) {
-                        console.error('Error handling done event', e);
+                        return false;
+                    })();
+
+                    if (explicitDone || progressComplete) {
+                        console.log('Search completed, cleaning up UI...');
+                        
+                        // Hide stop button when done
+                        if (stopBtn) {
+                            stopBtn.style.display = 'none';
+                        }
+
+                        searchBtn.disabled = false;
+                        searchBtn.innerHTML = 'Search';
+
+                        // Remove live tree + loader
+                        const loadingBlock = document.getElementById('loading-container');
+                        if (loadingBlock) loadingBlock.remove();
+                        const progressContainer = document.getElementById('progress-container');
+                        if (progressContainer) progressContainer.remove();
+                        
+                        // Only remove treeContainerWrapper if it exists
+                        if (treeContainerWrapper && treeContainerWrapper.parentNode) {
+                            treeContainerWrapper.remove();
+                        }
+
+                        // Render paginated results
+                        renderPaginatedResults(1);
+                        
+                        // Clean up controller
+                        window.searchController = null;
                     }
-
-                    // final debug log
-                    console.debug('SSE done. final keyword id =', window.currentKeywordId);
-
-                    evtSource.close();
-                    searchBtn.disabled = false;
-                    searchBtn.innerHTML = 'Search';
-
-                    // Remove live tree + loader
-                    const loadingBlock = document.getElementById('loading-container');
-                    if (loadingBlock) loadingBlock.remove();
-                    const progressContainer = document.getElementById('progress-container');
-                    if (progressContainer) progressContainer.remove();
-                    treeContainerWrapper.remove();
-
-                    // Render paginated results
-                    renderPaginatedResults(1);
-                });
-
-                evtSource.onerror = function(err) {
-                    console.error("SSE error:", err);
-                    evtSource.close();
-                    searchBtn.disabled = false;
-                    searchBtn.innerHTML = 'Search';
-                    const errMsg = document.createElement("p");
-                    errMsg.className = "text-danger mt-2";
-                    errMsg.innerText = "Error streaming results.";
-                    resultsContainer.appendChild(errMsg);
-                };
+                }
 
                 // Update a given mark-all checkbox state based on currently visible page checkboxes
                 function updateMarkAllCheckboxForCheckboxList(markAllCheckboxEl, visibleCheckboxes) {
@@ -2109,115 +2202,6 @@
                 searchBtn.innerHTML = 'Search';
             }
         });
-
-        
-
-
-        // Pagination click event handler
-        // document.addEventListener('click', function(e) {
-        //     if (e.target && e.target.classList.contains('page-link')) {
-        //         e.preventDefault();
-        //         const targetPage = parseInt(e.target.dataset.page);
-                
-        //         if (!isNaN(targetPage) && targetPage !== currentPage) {
-        //             currentPage = targetPage;
-        //             paginatedResults = paginateResults(window.lastResults, currentPage, itemsPerPage);
-                    
-        //             // Re-render results (replace content, not append)
-        //             // const itemsHtml = renderResults(paginatedResults);
-        //             const startIndex = (currentPage - 1) * itemsPerPage; // ADDED
-        //             const itemsHtml = renderResults(paginatedResults, 0, null, startIndex); // CHANGED
-
-        //             document.getElementById('results-content').innerHTML = itemsHtml || '<p>No results.</p>';
-
-        //             // Reinitialize checkbox functionality
-        //             // Reinitialize checkbox functionality
-        //             const resultCheckboxes = document.querySelectorAll('.result-checkbox');
-        //             resultCheckboxes.forEach(checkbox => {
-        //                 // ADD: Set checked state from global tracker
-        //                 checkbox.checked = selectedItems.has(checkbox.dataset.id);
-                        
-        //                 checkbox.onchange = () => {
-        //                     const itemId = checkbox.dataset.id;
-                            
-        //                     // ADD: Update global selection tracker
-        //                     if (checkbox.checked) {
-        //                         selectedItems.add(itemId);
-        //                     } else {
-        //                         selectedItems.delete(itemId);
-        //                     }
-                            
-        //                     if (checkbox.dataset.hasChildren === "true") {
-        //                         const childCheckboxes = getChildCheckboxes(checkbox.dataset.id);
-        //                         childCheckboxes.forEach(child => {
-        //                             child.checked = checkbox.checked;
-        //                             // ADD: Update global selection for children too
-        //                             if (checkbox.checked) {
-        //                                 selectedItems.add(child.dataset.id);
-        //                             } else {
-        //                                 selectedItems.delete(child.dataset.id);
-        //                             }
-        //                         });
-        //                     } else {
-        //                         if (checkbox.checked) {
-        //                             updateParentState(checkbox);
-        //                         }
-        //                     }
-                            
-        //                     // Update Mark All checkbox state
-        //                     const markAllCheckbox = document.getElementById('mark-all-checkbox');
-        //                     const allChecked = Array.from(resultCheckboxes).every(cb => cb.checked);
-        //                     const someChecked = Array.from(resultCheckboxes).some(cb => cb.checked);
-                            
-        //                     if (markAllCheckbox) {
-        //                         markAllCheckbox.checked = allChecked;
-        //                         markAllCheckbox.indeterminate = someChecked && !allChecked;
-        //                     }
-        //                 };
-        //             });
-                    
-        //             // Re-add Mark All functionality
-        //             const markAllCheckbox = document.getElementById('mark-all-checkbox');
-        //             if (markAllCheckbox) {
-        //                 // Check if ALL items across ALL pages are selected
-        //                 const allResultIds = getAllResultIds(window.lastResults);
-        //                 const allSelected = allResultIds.every(id => selectedItems.has(id));
-        //                 const someSelected = allResultIds.some(id => selectedItems.has(id));
-                        
-        //                 markAllCheckbox.checked = allSelected;
-        //                 markAllCheckbox.indeterminate = someSelected && !allSelected;
-                        
-        //                 markAllCheckbox.onchange = (e) => {
-        //                     const isChecked = e.target.checked;
-                            
-        //                     // Get ALL results (not just current page)
-        //                     const allResultIds = getAllResultIds(window.lastResults);
-                            
-        //                     if (isChecked) {
-        //                         // Add all IDs to selected items
-        //                         allResultIds.forEach(id => selectedItems.add(id));
-        //                     } else {
-        //                         // Remove all IDs from selected items
-        //                         allResultIds.forEach(id => selectedItems.delete(id));
-        //                     }
-                            
-        //                     // Update checkboxes on current page
-        //                     resultCheckboxes.forEach(checkbox => {
-        //                         checkbox.checked = isChecked;
-        //                         checkbox.indeterminate = false;
-        //                     });
-        //                 };
-        //             }
-                    
-        //             // Update pagination controls
-        //             const totalPages = Math.ceil(window.lastResults.length / itemsPerPage);
-        //             renderPagination(totalPages, currentPage);
-                    
-        //             // Scroll to top of results
-        //             resultsContainer.scrollIntoView({ behavior: 'smooth' });
-        //         }
-        //     }
-        // });
 
 
 

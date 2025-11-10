@@ -2,6 +2,10 @@
 sudo systemctl restart gunicorn
 sudo systemctl reload nginx
 
+sudo systemctl enable django-playwright
+sudo systemctl start django-playwright
+sudo systemctl status django-playwright
+
 
 
 

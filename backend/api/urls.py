@@ -22,6 +22,8 @@ urlpatterns = [
     path("delete-folders/", views.delete_folders, name="delete_folders"),
     path("bulk-keywords-search/", views.bulk_keywords_search_stream, name="bulk_keywords_search_stream"),
     path("save-bulk-keyword-results/", views.save_bulk_keyword_results, name="save_bulk_keyword_results"),
+    path("stop_search/", views.stop_search, name="stop_search"),
+    path("stop-bulk-search/", views.stop_bulk_search, name="stop_bulk_search"),
     # keyword search and parse ends
     
     # Projects starts
@@ -46,6 +48,7 @@ urlpatterns = [
     path('start-url-crawl/', views.start_url_crawl, name='start_url_crawl'),
     path('get-crawl-results/', views.get_crawl_results, name='get_crawl_results'),
     path('stop-crawl/', views.stop_crawl, name='stop_crawl'),
+    path('get-crawl-status/', views.get_crawl_status, name='get_crawl_status'),
     
     # token authentication
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

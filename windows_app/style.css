@@ -898,6 +898,9 @@ body {
 
 .search-section {
     width: 100%;
+    border: 1px solid #585858;
+    padding: 1rem;
+    border-radius: 6px;
 }
 
 .search-keyword-div {
@@ -1166,7 +1169,7 @@ body {
 
 /* file upload form styles start */
 .file-upload-section {
-    max-width: 500px;
+    /* max-width: 500px; */
     margin: 0 auto;
 }
 
@@ -1444,3 +1447,14 @@ body {
   scroll-behavior: smooth;
 }
 /* Stops the crawling button in keywords.js ends */
+
+.links-counter{
+    background-color: #c000ff;
+    padding: 0.25rem 0.5rem;
+    border-radius: 5px;
+}
+
+#results-content{
+    max-height: 500px;
+    overflow-y: auto;
+}
