@@ -49,7 +49,7 @@ urlpatterns = [
     path('get-crawl-results/', views.get_crawl_results, name='get_crawl_results'),
     path('stop-crawl/', views.stop_crawl, name='stop_crawl'),
     path('get-crawl-status/', views.get_crawl_status, name='get_crawl_status'),
-    
+        path('get-all-results/', views.get_all_results, name='get_all_results'),
     # token authentication
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

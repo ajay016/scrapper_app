@@ -1,9 +1,9 @@
 <!doctype html>
 {% load static %}
-<html lang="en">
+<html lang="ru">
     <head>
-        <title>Modern Home</title>
-        <!-- Required meta tags -->
+        <title>Современный Дом</title>
+        <!-- Обязательные мета теги -->
         <meta charset="utf-8" />
         <meta
             name="viewport"
@@ -25,7 +25,7 @@
         <link rel="stylesheet" href="{% static 'parser/css/style.css' %}">
 
     <body>
-        <!-- Background glow effects -->
+        <!-- Фоновые свечения -->
         <div class="glow glow-1"></div>
         <div class="glow glow-2"></div>
         
@@ -33,24 +33,24 @@
             <nav class="navbar navbar-expand-lg navbar-dark">
                 <div class="container">
                     <a class="navbar-brand brand" href="#">MODERN</a>
-                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Переключить навигацию">
                         <span class="navbar-toggler-icon"></span>
                     </button>
                     <div class="collapse navbar-collapse" id="navbarNav">
                         <ul class="navbar-nav ms-auto">
                             <li class="nav-item">
-                                <a class="nav-link active" href="#">Home</a>
+                                <a class="nav-link active" href="#">Главная</a>
                             </li>
                             {% if request.user.is_authenticated %}
                             <li class="nav-item">
                                 <span class="nav-link">{{ request.user.username }}</span>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link logout" href="{% url 'logout' %}">Logout</a>
+                                <a class="nav-link logout" href="{% url 'logout' %}">Выйти</a>
                             </li>
                             {% else %}
                             <li class="nav-item">
-                                <a class="nav-link login" href="{% url 'login_user' %}">Login</a>
+                                <a class="nav-link login" href="{% url 'login_user' %}">Войти</a>
                             </li>
                             {% endif %}
                         </ul>
@@ -62,8 +62,8 @@
         <main>
             <section class="hero">
                 <div class="container">
-                    <h1 class="pulse">WELCOME TO MODERN DESIGN</h1>
-                    <p>Experience the vibrant colors and sleek interface of this modern homepage template</p>
+                    <h1 class="pulse">ДОБРО ПОЖАЛОВАТЬ В СОВРЕМЕННЫЙ ДИЗАЙН</h1>
+                    <p>Ощутите яркие цвета и элегантный интерфейс этого современного шаблона главной страницы</p>
                 </div>
             </section>
             
@@ -75,8 +75,8 @@
                                 <div class="icon-wrapper">
                                     <i>⚡</i>
                                 </div>
-                                <h3>Fast Performance</h3>
-                                <p>Optimized for speed and efficiency with minimal loading times.</p>
+                                <h3>Высокая Скорость</h3>
+                                <p>Оптимизировано для скорости и эффективности с минимальным временем загрузки.</p>
                             </div>
                         </div>
                         <div class="col-md-4 mb-4">
@@ -84,8 +84,8 @@
                                 <div class="icon-wrapper">
                                     <i>🎨</i>
                                 </div>
-                                <h3>Vibrant Design</h3>
-                                <p>Modern color scheme with gradient accents and smooth animations.</p>
+                                <h3>Яркий Дизайн</h3>
+                                <p>Современная цветовая схема с градиентными акцентами и плавными анимациями.</p>
                             </div>
                         </div>
                         <div class="col-md-4 mb-4">
@@ -93,8 +93,8 @@
                                 <div class="icon-wrapper">
                                     <i>💻</i>
                                 </div>
-                                <h3>Fully Responsive</h3>
-                                <p>Looks great on all devices from mobile to desktop.</p>
+                                <h3>Полная Адаптивность</h3>
+                                <p>Отлично выглядит на всех устройствах, от мобильных до настольных компьютеров.</p>
                             </div>
                         </div>
                     </div>
@@ -104,7 +104,7 @@
         
         <footer>
             <div class="container">
-                <p>© 2025 EI Studio. All rights reserved.</p>
+                <p>© 2025 EI Studio. Все права защищены.</p>
             </div>
         </footer>
 

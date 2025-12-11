@@ -390,41 +390,41 @@
                 <div class="auth-modern-logo-text">SecureAuth</div>
             </div>
             
-            <h2>Welcome to our platform</h2>
-            <p>Join our community and enjoy the best services we offer</p>
+            <h2>Добро пожаловать на нашу платформу</h2>
+            <p>Присоединяйтесь к нашему сообществу и наслаждайтесь лучшими услугами</p>
             
             <ul class="auth-modern-feature-list">
                 <li class="auth-modern-feature-item">
                     <div class="auth-modern-feature-icon">
                         <i class="fas fa-shield-alt"></i>
                     </div>
-                    Advanced security features
+                    Расширенные функции безопасности
                 </li>
                 <li class="auth-modern-feature-item">
                     <div class="auth-modern-feature-icon">
                         <i class="fas fa-bolt"></i>
                     </div>
-                    Fast and reliable service
+                    Быстрый и надежный сервис
                 </li>
                 <li class="auth-modern-feature-item">
                     <div class="auth-modern-feature-icon">
                         <i class="fas fa-users"></i>
                     </div>
-                    Connect with other users
+                    Общайтесь с другими пользователями
                 </li>
                 <li class="auth-modern-feature-item">
                     <div class="auth-modern-feature-icon">
                         <i class="fas fa-sync"></i>
                     </div>
-                    Sync across all your devices
+                    Синхронизация на всех ваших устройствах
                 </li>
             </ul>
         </div>
         
         <div class="auth-modern-right">
             <div class="auth-modern-tabs">
-                <div class="auth-modern-tab active" data-tab="login">Login</div>
-                <div class="auth-modern-tab" data-tab="signup">Sign Up</div>
+                <div class="auth-modern-tab active" data-tab="login">Вход</div>
+                <div class="auth-modern-tab" data-tab="signup">Регистрация</div>
             </div>
             
             <form class="auth-modern-form active" id="auth-login-form" action="{% url 'login_user' %}">
@@ -435,24 +435,24 @@
                 <div class="auth-modern-form-group">
                     <label for="auth-login-email" class="auth-modern-form-label">Email</label>
                     <input type="email" name="email" id="auth-login-email" class="auth-modern-form-input" required>
-                    <div class="auth-modern-form-error" id="auth-login-email-error">Please enter a valid email address</div>
+                    <div class="auth-modern-form-error" id="auth-login-email-error">Пожалуйста, введите корректный email адрес</div>
                 </div>
                 
                 <div class="auth-modern-form-group">
-                    <label for="auth-login-password" class="auth-modern-form-label">Password</label>
+                    <label for="auth-login-password" class="auth-modern-form-label">Пароль</label>
                     <input type="password" name="password" id="auth-login-password" class="auth-modern-form-input" required>
-                    <div class="auth-modern-form-error" id="auth-login-password-error">Please enter your password</div>
+                    <div class="auth-modern-form-error" id="auth-login-password-error">Пожалуйста, введите ваш пароль</div>
                 </div>
 
                 <div style="margin-bottom: 10px;">
                     <div class="error-success-div py-6"></div>
                 </div>
                 
-                <button type="submit" class="auth-modern-form-btn">Login</button>
+                <button type="submit" class="auth-modern-form-btn">Войти</button>
                 
                 <div class="auth-modern-divider">
                     <div class="auth-modern-divider-line"></div>
-                    <div class="auth-modern-divider-text">or continue with</div>
+                    <div class="auth-modern-divider-text">или продолжить с</div>
                     <div class="auth-modern-divider-line"></div>
                 </div>
                 
@@ -465,13 +465,13 @@
             <form class="auth-modern-form" id="auth-signup-form">
                 <div class="auth-modern-form-row">
                     <div class="auth-modern-form-group">
-                        <label for="auth-signup-firstname" class="auth-modern-form-label">First Name</label>
+                        <label for="auth-signup-firstname" class="auth-modern-form-label">Имя</label>
                         <input type="text" id="auth-signup-firstname" class="auth-modern-form-input" required>
-                        <div class="auth-modern-form-error" id="auth-signup-firstname-error">Please enter your first name</div>
+                        <div class="auth-modern-form-error" id="auth-signup-firstname-error">Пожалуйста, введите ваше имя</div>
                     </div>
                     
                     <div class="auth-modern-form-group">
-                        <label for="auth-signup-lastname" class="auth-modern-form-label">Last Name <span class="auth-optional">(optional)</span></label>
+                        <label for="auth-signup-lastname" class="auth-modern-form-label">Фамилия <span class="auth-optional">(опционально)</span></label>
                         <input type="text" id="auth-signup-lastname" class="auth-modern-form-input">
                     </div>
                 </div>
@@ -479,36 +479,36 @@
                 <div class="auth-modern-form-group">
                     <label for="auth-signup-email" class="auth-modern-form-label">Email</label>
                     <input type="email" id="auth-signup-email" class="auth-modern-form-input" required>
-                    <div class="auth-modern-form-error" id="auth-signup-email-error">Please enter a valid email address</div>
+                    <div class="auth-modern-form-error" id="auth-signup-email-error">Пожалуйста, введите корректный email адрес</div>
                 </div>
                 
                 <div class="auth-modern-form-group">
-                    <label for="auth-signup-phone" class="auth-modern-form-label">Phone</label>
+                    <label for="auth-signup-phone" class="auth-modern-form-label">Телефон</label>
                     <input type="tel" id="auth-signup-phone" class="auth-modern-form-input" required>
-                    <div class="auth-modern-form-error" id="auth-signup-phone-error">Please enter a valid phone number</div>
+                    <div class="auth-modern-form-error" id="auth-signup-phone-error">Пожалуйста, введите корректный номер телефона</div>
                 </div>
                 
                 <div class="auth-modern-form-row">
                     <div class="auth-modern-form-group">
-                        <label for="auth-signup-password" class="auth-modern-form-label">Password</label>
+                        <label for="auth-signup-password" class="auth-modern-form-label">Пароль</label>
                         <input type="password" id="auth-signup-password" class="auth-modern-form-input" required>
-                        <div class="auth-modern-form-error" id="auth-signup-password-error">Password must be at least 8 characters</div>
+                        <div class="auth-modern-form-error" id="auth-signup-password-error">Пароль должен быть не менее 8 символов</div>
                     </div>
                     
                     <div class="auth-modern-form-group">
-                        <label for="auth-signup-confirm" class="auth-modern-form-label">Confirm Password</label>
+                        <label for="auth-signup-confirm" class="auth-modern-form-label">Подтвердите пароль</label>
                         <input type="password" id="auth-signup-confirm" class="auth-modern-form-input" required>
-                        <div class="auth-modern-form-error" id="auth-signup-confirm-error">Passwords do not match</div>
+                        <div class="auth-modern-form-error" id="auth-signup-confirm-error">Пароли не совпадают</div>
                     </div>
                 </div>
                 <div style="padding-left: 20px; padding-right: 20px; margin-bottom: 10px;">
                     <div class="error-success-div-signup p-6"></div>
                 </div>
-                <button type="submit" class="auth-modern-form-btn">Create Account</button>
+                <button type="submit" class="auth-modern-form-btn">Создать аккаунт</button>
                 
                 <div class="auth-modern-divider">
                     <div class="auth-modern-divider-line"></div>
-                    <div class="auth-modern-divider-text">or sign up with</div>
+                    <div class="auth-modern-divider-text">или зарегистрироваться через</div>
                     <div class="auth-modern-divider-line"></div>
                 </div>
                 
@@ -521,7 +521,7 @@
     </div>
     <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
     <script>
-        // Tab switching functionality
+        // Функционал переключения вкладок
         const authTabs = document.querySelectorAll('.auth-modern-tab');
         const authForms = document.querySelectorAll('.auth-modern-form');
         
@@ -529,11 +529,11 @@
             tab.addEventListener('click', () => {
                 const targetTab = tab.getAttribute('data-tab');
                 
-                // Update active tab
+                // Обновление активной вкладки
                 authTabs.forEach(t => t.classList.remove('active'));
                 tab.classList.add('active');
                 
-                // Show corresponding form
+                // Показать соответствующую форму
                 authForms.forEach(form => {
                     form.classList.remove('active');
                     if (form.id === `auth-${targetTab}-form`) {
@@ -550,20 +550,20 @@
             const emailError = document.getElementById('auth-login-email-error');
             const passwordError = document.getElementById('auth-login-password-error');
             
-            // Reset errors
+            // Сброс ошибок
             emailError.style.display = 'none';
             passwordError.style.display = 'none';
             email.classList.remove('error');
             password.classList.remove('error');
             
-            // Validate email
+            // Проверка email
             if (!email.value || !isValidEmail(email.value)) {
                 emailError.style.display = 'block';
                 email.classList.add('error');
                 isValid = false;
             }
             
-            // Validate password
+            // Проверка пароля
             if (!password.value) {
                 passwordError.style.display = 'block';
                 password.classList.add('error');
@@ -587,7 +587,7 @@
             const passwordError = document.getElementById('auth-signup-password-error');
             const confirmError = document.getElementById('auth-signup-confirm-error');
             
-            // Reset errors
+            // Сброс ошибок
             firstNameError.style.display = 'none';
             emailError.style.display = 'none';
             phoneError.style.display = 'none';
@@ -599,35 +599,35 @@
             password.classList.remove('error');
             confirmPassword.classList.remove('error');
             
-            // Validate first name
+            // Проверка имени
             if (!firstName.value.trim()) {
                 firstNameError.style.display = 'block';
                 firstName.classList.add('error');
                 isValid = false;
             }
             
-            // Validate email
+            // Проверка email
             if (!email.value || !isValidEmail(email.value)) {
                 emailError.style.display = 'block';
                 email.classList.add('error');
                 isValid = false;
             }
             
-            // Validate phone
+            // Проверка телефона
             if (!phone.value || !isValidPhone(phone.value)) {
                 phoneError.style.display = 'block';
                 phone.classList.add('error');
                 isValid = false;
             }
             
-            // Validate password
+            // Проверка пароля
             if (!password.value || password.value.length < 8) {
                 passwordError.style.display = 'block';
                 password.classList.add('error');
                 isValid = false;
             }
             
-            // Validate confirm password
+            // Проверка подтверждения пароля
             if (password.value !== confirmPassword.value) {
                 confirmError.style.display = 'block';
                 confirmPassword.classList.add('error');
@@ -643,58 +643,54 @@
         }
         
         function isValidPhone(phone) {
-            // Simple phone validation - can be enhanced as needed
+            // Простая проверка телефона - можно улучшить при необходимости
             const re = /^[\+]?[1-9][\d]{0,15}$/;
             return re.test(phone.replace(/[\s\-\(\)]/g, ''));
         }
         
-        // Google OAuth buttons (placeholder for future implementation)
+        // Кнопки OAuth Google (заглушка для будущей реализации)
         document.getElementById('auth-google-login').addEventListener('click', () => {
-            alert('Google login would be implemented here');
+            alert('Здесь будет реализован вход через Google');
         });
         
         document.getElementById('auth-google-signup').addEventListener('click', () => {
-            alert('Google signup would be implemented here');
+            alert('Здесь будет реализована регистрация через Google');
         });
         
-        // Form submission handling
+        // Обработка отправки форм
         function showMessage(type, message, divClass) {
             const div = $(divClass);
 
-            // routine to set text + color and then expand
+            // Процедура установки текста + цвета и затем раскрытия
             function expand() {
                 div
                 .removeClass("error-message success-message")
                 .addClass(type + "-message")
                 .text(message);
 
-                // small delay so the browser "sees" the reset
+                // Небольшая задержка, чтобы браузер "увидел" сброс
                 requestAnimationFrame(() => {
                 div.addClass("show");
                 });
-
-                /*if (type === "success") {
-                setTimeout(() => location.reload(), 2000);
-                }*/
             }
 
             if (div.hasClass("show")) {
-                // 1. If already shown, collapse first
+                // 1. Если уже показано, сначала свернуть
                 div.removeClass("show");
 
-                // 2. Wait for collapse transition to finish, then expand
+                // 2. Подождать завершения анимации сворачивания, затем раскрыть
                 div.one("transitionend", expand);
             } else {
-                // first time: just expand
+                // Первый раз: просто раскрыть
                 expand();
             }
         }
 
         $(document).ready(function() {
             $('#auth-login-form').on('submit', function(event) {
-                event.preventDefault(); // Prevents the page reload
+                event.preventDefault(); // Предотвращает перезагрузку страницы
 
-                const form = $(this)[0]; // Get the native DOM element
+                const form = $(this)[0]; // Получаем нативный DOM элемент
                 const url = form.action;
 
                 const formData = new FormData(form);
@@ -705,25 +701,25 @@
                     method: 'POST',
                     body: formData,
                     headers: {
-                        'X-CSRFToken': csrfToken  // ✅ add CSRF token header
+                        'X-CSRFToken': csrfToken  // ✅ добавляем заголовок CSRF токена
                     }
                 })
                 .then(response => {
-                    if (!response.ok) throw new Error('Network response was not ok');
+                    if (!response.ok) throw new Error('Ошибка сетевого ответа');
                     return response.json();
                 })
                 .then(data => {
-                    console.log(data); // Log the response data
+                    console.log(data); // Логируем данные ответа
 
                     if (data.success) {
                         showMessage('success', data.message, '.error-success-div');
 
                         if (data.deep_link) {
-                            // ✅ Electron login: show alert instead of redirect
-                            alert("Login successful! Open the app to continue.");
+                            // ✅ Вход через Electron: показываем alert вместо редиректа
+                            alert("Вход успешен! Откройте приложение для продолжения.");
                             window.location.href = data.deep_link; 
                         } else if (data.redirect_to) {
-                            // Normal web login: redirect to dashboard/home
+                            // Обычный веб-вход: редирект на дашборд/главную
                             window.location.href = data.redirect_to;
                         }
                     } else {
@@ -731,7 +727,7 @@
                     }
                 })
                 .catch(error => {
-                    showMessage('error', 'An unexpected error occurred.', '.error-success-div');
+                    showMessage('error', 'Произошла непредвиденная ошибка.', '.error-success-div');
                 });
             });
         });

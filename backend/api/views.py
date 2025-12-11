@@ -1561,164 +1561,164 @@ def list_sessions(request):
 
 
     
-def search_url(request):
-    """Parse URL and extract all links with pagination support"""
-    url = request.GET.get('url', '').strip()
-    max_pages = int(request.GET.get('max_pages', 1))
-    max_depth = int(request.GET.get('max_depth', 0))
+# def search_url(request):
+#     """Parse URL and extract all links with pagination support"""
+#     url = request.GET.get('url', '').strip()
+#     max_pages = int(request.GET.get('max_pages', 1))
+#     max_depth = int(request.GET.get('max_depth', 0))
     
-    if not url:
-        return JsonResponse({'error': 'URL is required'}, status=400)
+#     if not url:
+#         return JsonResponse({'error': 'URL is required'}, status=400)
     
-    try:
-        # Parse the initial page
-        results = parse_url_with_pagination(url, max_pages, max_depth)
+#     try:
+#         # Parse the initial page
+#         results = parse_url_with_pagination(url, max_pages, max_depth)
         
-        return JsonResponse({
-            'success': True,
-            'url': url,
-            'all_links': results,
-            'total_links': len(results)
-        })
+#         return JsonResponse({
+#             'success': True,
+#             'url': url,
+#             'all_links': results,
+#             'total_links': len(results)
+#         })
         
-    except Exception as e:
-        return JsonResponse({'error': f'Failed to parse URL: {str(e)}'}, status=500)
+#     except Exception as e:
+#         return JsonResponse({'error': f'Failed to parse URL: {str(e)}'}, status=500)
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def save_url_results(request):
-    """Save selected URL results to database project-wise"""
-    try:
-        data = json.loads(request.body)
-        items = data.get('items', [])
-        project_id = data.get('project_id')
-        folder_id = data.get('folder_id')
-        source_url = data.get('source_url')
-        search_name = data.get('search_name', f"URL Crawl - {source_url}")
+# @csrf_exempt
+# @require_http_methods(["POST"])
+# def save_url_results(request):
+#     """Save selected URL results to database project-wise"""
+#     try:
+#         data = json.loads(request.body)
+#         items = data.get('items', [])
+#         project_id = data.get('project_id')
+#         folder_id = data.get('folder_id')
+#         source_url = data.get('source_url')
+#         search_name = data.get('search_name', f"URL Crawl - {source_url}")
         
-        if not items:
-            return JsonResponse({'error': 'No items to save'}, status=400)
+#         if not items:
+#             return JsonResponse({'error': 'No items to save'}, status=400)
         
-        if not project_id:
-            return JsonResponse({'error': 'Project ID is required'}, status=400)
+#         if not project_id:
+#             return JsonResponse({'error': 'Project ID is required'}, status=400)
         
-        # Import models
-        from django.db import transaction
-        from datetime import datetime
+#         # Import models
+#         from django.db import transaction
+#         from datetime import datetime
         
-        # Get or create project and folder
-        try:
-            project = Project.objects.get(id=project_id, user=request.user)
-            folder = None
-            if folder_id:
-                folder = ProjectFolder.objects.get(id=folder_id, project=project)
-        except (Project.DoesNotExist, ProjectFolder.DoesNotExist):
-            return JsonResponse({'error': 'Invalid project or folder'}, status=400)
+#         # Get or create project and folder
+#         try:
+#             project = Project.objects.get(id=project_id, user=request.user)
+#             folder = None
+#             if folder_id:
+#                 folder = ProjectFolder.objects.get(id=folder_id, project=project)
+#         except (Project.DoesNotExist, ProjectFolder.DoesNotExist):
+#             return JsonResponse({'error': 'Invalid project or folder'}, status=400)
         
-        saved_count = 0
-        saved_urls = set()
+#         saved_count = 0
+#         saved_urls = set()
         
-        with transaction.atomic():
-            # Create a new search job for this project
-            search_job = SearchJob.objects.create(
-                user=request.user,
-                project=project,  # Associate with project
-                folder=folder,
-                name=search_name,
-                search_type="url_crawl",
-                status="completed",
-                total_results=len(items),
-                metadata={
-                    'source_url': source_url,
-                    'crawled_at': datetime.now().isoformat(),
-                    'total_links_found': len(items)
-                }
-            )
+#         with transaction.atomic():
+#             # Create a new search job for this project
+#             search_job = SearchJob.objects.create(
+#                 user=request.user,
+#                 project=project,  # Associate with project
+#                 folder=folder,
+#                 name=search_name,
+#                 search_type="url_crawl",
+#                 status="completed",
+#                 total_results=len(items),
+#                 metadata={
+#                     'source_url': source_url,
+#                     'crawled_at': datetime.now().isoformat(),
+#                     'total_links_found': len(items)
+#                 }
+#             )
             
-            # Create search settings for this job
-            SearchSetting.objects.create(
-                job=search_job,
-                project=project,
-                engines=["url_parser"],
-                results_per_keyword=len(items),
-                crawl_depth=0,
-                crawl_entire_domain=False,
-                search_url=source_url
-            )
+#             # Create search settings for this job
+#             SearchSetting.objects.create(
+#                 job=search_job,
+#                 project=project,
+#                 engines=["url_parser"],
+#                 results_per_keyword=len(items),
+#                 crawl_depth=0,
+#                 crawl_entire_domain=False,
+#                 search_url=source_url
+#             )
             
-            # Create or get keyword for this search
-            keyword, created = Keyword.objects.get_or_create(
-                user=request.user,
-                project=project,  # Associate keyword with project
-                folder=folder,
-                word=f"url_crawl_{source_url}",
-                defaults={
-                    'search_volume': len(items),
-                    'is_primary': False
-                }
-            )
+#             # Create or get keyword for this search
+#             keyword, created = Keyword.objects.get_or_create(
+#                 user=request.user,
+#                 project=project,  # Associate keyword with project
+#                 folder=folder,
+#                 word=f"url_crawl_{source_url}",
+#                 defaults={
+#                     'search_volume': len(items),
+#                     'is_primary': False
+#                 }
+#             )
             
-            # Save each result
-            for item in items:
-                try:
-                    url = item.get('url', '').strip()
-                    if not url or url in saved_urls:
-                        continue
+#             # Save each result
+#             for item in items:
+#                 try:
+#                     url = item.get('url', '').strip()
+#                     if not url or url in saved_urls:
+#                         continue
                         
-                    saved_urls.add(url)
+#                     saved_urls.add(url)
                     
-                    # Extract potential company name from URL or text
-                    name = extract_company_name(url, item.get('text', ''))
+#                     # Extract potential company name from URL or text
+#                     name = extract_company_name(url, item.get('text', ''))
                     
-                    # Extract potential email and phone
-                    email, phone = extract_contact_info(url, item.get('text', ''))
+#                     # Extract potential email and phone
+#                     email, phone = extract_contact_info(url, item.get('text', ''))
                     
-                    # Create search result link
-                    SearchResultLink.objects.create(
-                        user=request.user,
-                        project=project,  # Associate with project
-                        folder=folder,
-                        job=search_job,
-                        keyword=keyword,
-                        url=url,
-                        title=item.get('text', '')[:500],
-                        name=name,
-                        email=email,
-                        phone_number=phone,
-                        domain=urlparse(url).netloc,
-                        is_internal=item.get('is_internal', False),
-                        is_external=item.get('is_external', False),
-                        depth=item.get('depth', 0),
-                        metadata={
-                            'source_url': source_url,
-                            'original_text': item.get('text', '')[:1000],
-                            'crawled_at': datetime.now().isoformat(),
-                            'link_depth': item.get('depth', 0)
-                        }
-                    )
-                    saved_count += 1
+#                     # Create search result link
+#                     SearchResultLink.objects.create(
+#                         user=request.user,
+#                         project=project,  # Associate with project
+#                         folder=folder,
+#                         job=search_job,
+#                         keyword=keyword,
+#                         url=url,
+#                         title=item.get('text', '')[:500],
+#                         name=name,
+#                         email=email,
+#                         phone_number=phone,
+#                         domain=urlparse(url).netloc,
+#                         is_internal=item.get('is_internal', False),
+#                         is_external=item.get('is_external', False),
+#                         depth=item.get('depth', 0),
+#                         metadata={
+#                             'source_url': source_url,
+#                             'original_text': item.get('text', '')[:1000],
+#                             'crawled_at': datetime.now().isoformat(),
+#                             'link_depth': item.get('depth', 0)
+#                         }
+#                     )
+#                     saved_count += 1
                     
-                except Exception as e:
-                    print(f"Error saving item {item.get('url', 'unknown')}: {str(e)}")
-                    continue
+#                 except Exception as e:
+#                     print(f"Error saving item {item.get('url', 'unknown')}: {str(e)}")
+#                     continue
         
-        # Update project stats
-        project.total_keywords = Keyword.objects.filter(project=project).count()
-        project.total_results = SearchResultLink.objects.filter(project=project).count()
-        project.last_activity = datetime.now()
-        project.save()
+#         # Update project stats
+#         project.total_keywords = Keyword.objects.filter(project=project).count()
+#         project.total_results = SearchResultLink.objects.filter(project=project).count()
+#         project.last_activity = datetime.now()
+#         project.save()
         
-        return JsonResponse({
-            'success': True,
-            'message': f'Successfully saved {saved_count} links to project "{project.name}"',
-            'saved_count': saved_count,
-            'project_id': project.id,
-            'project_name': project.name,
-            'job_id': search_job.id
-        })
+#         return JsonResponse({
+#             'success': True,
+#             'message': f'Successfully saved {saved_count} links to project "{project.name}"',
+#             'saved_count': saved_count,
+#             'project_id': project.id,
+#             'project_name': project.name,
+#             'job_id': search_job.id
+#         })
         
-    except Exception as e:
-        return JsonResponse({'error': f'Failed to save results: {str(e)}'}, status=500)
+#     except Exception as e:
+#         return JsonResponse({'error': f'Failed to save results: {str(e)}'}, status=500)
 
 
 @require_http_methods(["GET"])
@@ -1762,6 +1762,25 @@ def get_project_search_history(request):
         return JsonResponse({'error': 'Project not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': f'Failed to get search history: {str(e)}'}, status=500)
+
+@require_http_methods(["GET"])
+def get_all_results(request):
+    """Get all results for a session"""
+    session_id = request.GET.get('session_id')
+    
+    if not session_id:
+        return JsonResponse({'error': 'Session ID is required'}, status=400)
+    
+    if session_id not in crawler_sessions:
+        return JsonResponse({'error': 'Session not found'}, status=404)
+    
+    session = crawler_sessions[session_id]
+    
+    return JsonResponse({
+        'results': session.get('crawler', {}).found_links if session.get('crawler') else [],
+        'stats': session.get('stats', {}),
+        'status': session.get('status', 'unknown')
+    })
 
 
 @require_http_methods(["GET"])
@@ -1827,3 +1846,6 @@ def get_project_results(request):
         return JsonResponse({'error': 'Project not found'}, status=404)
     except Exception as e:
         return JsonResponse({'error': f'Failed to get project results: {str(e)}'}, status=500)
+
+
+    
