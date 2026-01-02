@@ -1,32 +1,22 @@
-try {
-    const { ipcRenderer } = require("electron");
-    ipcRenderer.send("open-devtools");
-} catch (e) {
-    console.warn("DevTools IPC failed:", e);
-}
-// scripts/urls.js - CORRECTED VERSION
-console.log('🚀 urls.js is loading...');
-
-// Simple module pattern that works
-(function() {
-    'use strict';
-    
-    console.log('🏭 Creating URLs module...');
+// scripts/urls.js
+(function (root, factory) {
+    if (typeof module === 'object' && module.exports) {
+        module.exports = factory();
+    } else {
+        root.__pages = root.__pages || {};
+        root.__pages['urls'] = factory();
+    }
+}(this, function () {
 
     let selectedItems = new Set();
     let currentPage = 1;
     const itemsPerPage = 10;
-    let lastRenderedIndex = 0;
     let paginatedResults = [];
     let allResults = [];
-    let renderQueue = [];
-    let renderInterval = null;
     let currentSessionId = null;
     let isCrawling = false;
     let resultsInterval = null;
     let statusInterval = null;
-
-    let isPaused = false;
 
     let lastRenderTime = 0;
     const RENDER_INTERVAL = 1000;
@@ -139,6 +129,7 @@ console.log('🚀 urls.js is loading...');
         
         statusContainer.appendChild(alertDiv);
         
+        // Auto-remove after 8 seconds for non-error messages
         if (type !== 'danger' && type !== 'warning') {
             setTimeout(() => {
                 if (alertDiv.parentNode) {
@@ -147,6 +138,7 @@ console.log('🚀 urls.js is loading...');
             }, 8000);
         }
 
+        // Scroll to bottom
         statusContainer.scrollTop = statusContainer.scrollHeight;
     }
 
@@ -176,6 +168,10 @@ console.log('🚀 urls.js is loading...');
                     <small class="text-muted">Селен</small>
                     <div class="h6 mb-0">${stats.selenium_fallback || 0}</div>
                 </div>
+                <div class="col">
+                    <small class="text-muted">Параллельно</small>
+                    <div class="h6 mb-0">${stats.parallel_workers || 5}</div>
+                </div>
             </div>
         `;
     }
@@ -204,20 +200,6 @@ console.log('🚀 urls.js is loading...');
         const paginationList = document.querySelector('.url-pagination-list');
         if (!paginationContainer || !paginationList) return;
 
-        // HIDE PAGINATION if we are still crawling OR if there's only 1 page
-        // if (isCrawling || totalPages <= 1) {
-        //     paginationContainer.classList.add('d-none');
-        //     return;
-        // }
-
-        if ((isCrawling && !isPaused) || totalPages <= 1) {
-            paginationContainer.classList.add('d-none');
-            return;
-        }
-
-        paginationContainer.classList.remove('d-none');
-        paginationList.innerHTML = '';
-
         if (totalPages <= 1) {
             paginationContainer.classList.add('d-none');
             return;
@@ -242,8 +224,10 @@ console.log('🚀 urls.js is loading...');
             paginationList.appendChild(li);
         };
 
+        // Prev button
         createPageItem(currentPage - 1, '« Prev', currentPage === 1);
 
+        // First page if not in visible range
         if (startPage > 1) {
             createPageItem(1, '1');
             if (startPage > 2) {
@@ -254,10 +238,12 @@ console.log('🚀 urls.js is loading...');
             }
         }
 
+        // Page numbers
         for (let i = startPage; i <= endPage; i++) {
             createPageItem(i, i, false, i === currentPage);
         }
 
+        // Last page if not in visible range
         if (endPage < totalPages) {
             if (endPage < totalPages - 1) {
                 const li = document.createElement('li');
@@ -268,9 +254,10 @@ console.log('🚀 urls.js is loading...');
             createPageItem(totalPages, totalPages);
         }
 
+        // Next button
         createPageItem(currentPage + 1, 'Next »', currentPage === totalPages);
 
-        // Ensure the event listeners for page clicks remain the same as your provided code
+        // Click events
         paginationList.querySelectorAll('a.url-pagination-number').forEach(link => {
             link.addEventListener('click', e => {
                 e.preventDefault();
@@ -278,16 +265,10 @@ console.log('🚀 urls.js is loading...');
                 if (!isNaN(page) && page >= 1 && page <= totalPages && page !== currentPage) {
                     currentPage = page;
                     const resultsToShow = isFilterActive ? filteredResults : allResults;
-                    const paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
-                    
-                    // Replace content with selected page
+                    paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
                     document.getElementById('results-content').innerHTML = renderResults(paginatedResults, (currentPage - 1) * itemsPerPage);
-                    
                     renderPagination(totalPages, currentPage);
                     attachCheckboxHandlers();
-                    
-                    // Scroll results back to top on page change
-                    document.getElementById('results-content').scrollTop = 0;
                 }
             });
         });
@@ -323,40 +304,36 @@ console.log('🚀 urls.js is loading...');
                 </div>
             `;
             
+            // Add event listeners
             setTimeout(() => {
+                // Export Selected button
                 const exportSelectedBtn = document.getElementById('export-selected-btn');
                 if (exportSelectedBtn) {
-                    const newExportBtn = exportSelectedBtn.cloneNode(true);
-                    exportSelectedBtn.parentNode.replaceChild(newExportBtn, exportSelectedBtn);
-                    newExportBtn.addEventListener('click', handleExportSelected);
+                    exportSelectedBtn.addEventListener('click', handleExportSelected);
                 }
                 
+                // Parse with Filters button
                 const parseWithFiltersBtn = document.getElementById('parse-with-filters-btn');
                 if (parseWithFiltersBtn) {
-                    const newParseBtn = parseWithFiltersBtn.cloneNode(true);
-                    parseWithFiltersBtn.parentNode.replaceChild(newParseBtn, parseWithFiltersBtn);
-                    newParseBtn.addEventListener('click', startFilteredParsing);
+                    parseWithFiltersBtn.addEventListener('click', startFilteredParsing);
                 }
                 
+                // Show Filters button
                 const showFiltersBtn = document.getElementById('show-filters-btn');
                 if (showFiltersBtn) {
-                    const newShowBtn = showFiltersBtn.cloneNode(true);
-                    showFiltersBtn.parentNode.replaceChild(newShowBtn, showFiltersBtn);
-                    newShowBtn.addEventListener('click', toggleFilterPanel);
+                    showFiltersBtn.addEventListener('click', toggleFilterPanel);
                 }
 
+                // Mark All checkbox
                 const markAllCheckbox = document.getElementById('mark-all-checkbox');
                 if (markAllCheckbox) {
-                    const newMarkAll = markAllCheckbox.cloneNode(true);
-                    markAllCheckbox.parentNode.replaceChild(newMarkAll, markAllCheckbox);
-                    newMarkAll.addEventListener('change', handleMarkAllChange);
+                    markAllCheckbox.addEventListener('change', handleMarkAllChange);
                 }
 
+                // Save Selected button
                 const saveSelectedBtn = document.getElementById('save-selected-btn');
                 if (saveSelectedBtn) {
-                    const newSaveBtn = saveSelectedBtn.cloneNode(true);
-                    saveSelectedBtn.parentNode.replaceChild(newSaveBtn, saveSelectedBtn);
-                    newSaveBtn.addEventListener('click', handleSaveSelected);
+                    saveSelectedBtn.addEventListener('click', handleSaveSelected);
                 }
 
             }, 0);
@@ -365,11 +342,9 @@ console.log('🚀 urls.js is loading...');
             actionButtonsContainer.style.display = 'none';
         }
 
+        // Individual checkbox handlers
         checkboxes.forEach(cb => {
-            const newCheckbox = cb.cloneNode(true);
-            cb.parentNode.replaceChild(newCheckbox, cb);
-            
-            newCheckbox.addEventListener('change', function() {
+            cb.addEventListener('change', function() {
                 if (this.checked) {
                     selectedItems.add(this.dataset.id);
                 } else {
@@ -378,13 +353,15 @@ console.log('🚀 urls.js is loading...');
                 updateMarkAllCheckbox();
             });
             
-            newCheckbox.checked = true;
-            selectedItems.add(newCheckbox.dataset.id);
+            // Auto-check all results by default
+            cb.checked = true;
+            selectedItems.add(cb.dataset.id);
         });
 
         updateMarkAllCheckbox();
     }
 
+    // Event handler functions
     function handleExportSelected() {
         if (!selectedItems.size) {
             alert('Please select URLs to export');
@@ -397,6 +374,7 @@ console.log('🚀 urls.js is loading...');
         const checked = e.target.checked;
         
         if (checked) {
+            // Mark ALL results from ALL pages
             const allResultsToShow = isFilterActive ? filteredResults : allResults;
             selectedItems.clear();
             
@@ -445,76 +423,72 @@ console.log('🚀 urls.js is loading...');
             const data = await response.json();
 
             if (response.ok && data.results) {
+                let hasNewLinks = false;
+                
                 for (const update of data.results) {
-                    // Instant exit if crawl stopped
-                    if (!isCrawling) break;
+                    renderRealTimeUpdate(update);
 
-                    // 1. DATA PERSISTENCE (Never lost)
                     if (update.type === 'link_found') {
-                        allResults.push(update.link);
-                        
-                        // Always update count badge so user sees background progress
-                        const totalBadge = document.getElementById('total-links-badge');
-                        if (totalBadge) totalBadge.textContent = allResults.length;
-                        
-                        updateProgressBar(allResults.length);
-                    }
-
-                    // 2. GATED RENDERING (Immediate Pause)
-                    // We check isPaused inside the loop to freeze the UI immediately
-                    if (!isPaused) {
-                        renderRealTimeUpdate(update);
-
-                        if (update.type === 'link_found') {
-                            const now = Date.now();
-                            if (typeof window.lastRenderedIndex === 'undefined') window.lastRenderedIndex = 0;
-
-                            const newLinksCount = allResults.length - window.lastRenderedIndex;
-                            const shouldRender = now - lastRenderTime > RENDER_INTERVAL || newLinksCount >= 20;
-
-                            if (shouldRender && newLinksCount > 0) {
-                                renderLinkBatch();
-                            }
-                        }
-
-                        if (update.type === 'complete') {
-                            renderLinkBatch(); 
-                            stopCrawling();
+                        // Check if link already exists
+                        const existingLink = allResults.find(r => r.url === update.link.url);
+                        if (!existingLink) {
+                            allResults.push(update.link);
+                            hasNewLinks = true;
                         }
                     }
 
-                    // Small delay to keep the UI responsive
-                    await new Promise(resolve => setTimeout(resolve, 20));
+                    if (update.type === 'complete') {
+                        handleCrawlComplete();
+                    }
+                }
+
+                // Update UI if we have new links
+                if (hasNewLinks && document.getElementById('results-content')) {
+                    const now = Date.now();
+                    const shouldRender = now - lastRenderTime > RENDER_INTERVAL;
+                    
+                    if (shouldRender) {
+                        currentPage = 1;
+                        const resultsToShow = isFilterActive ? filteredResults : allResults;
+                        paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
+                        
+                        const resultsContent = document.getElementById('results-content');
+                        if (resultsContent) {
+                            resultsContent.innerHTML = renderResults(paginatedResults, 0);
+                            
+                            const totalPages = Math.ceil(resultsToShow.length / itemsPerPage);
+                            renderPagination(totalPages, currentPage);
+                            attachCheckboxHandlers();
+                            
+                            // Update total links badge
+                            const totalBadge = document.getElementById('total-links-badge');
+                            if (totalBadge) totalBadge.textContent = allResults.length;
+                            
+                            // Auto-select all results
+                            selectedItems.clear();
+                            allResults.forEach((_, index) => {
+                                selectedItems.add(index.toString());
+                            });
+                            
+                            const checkboxes = document.querySelectorAll('.result-checkbox');
+                            checkboxes.forEach(cb => {
+                                cb.checked = true;
+                            });
+                            
+                            updateMarkAllCheckbox();
+                        }
+                        
+                        lastRenderTime = now;
+                    }
+                    
+                    updateProgressBar(allResults.length);
                 }
 
                 if (data.stats) updateProgressStats(data.stats);
             }
+
         } catch (error) {
             console.error('Error fetching crawl results:', error);
-        }
-
-        // Helper function is now "Pause-Aware"
-        function renderLinkBatch() {
-            const resultsContainer = document.getElementById('results-content');
-            if (!resultsContainer || isPaused) return; // Do nothing if paused
-
-            const startIndex = window.lastRenderedIndex || 0;
-            // Slice everything from where we left off to the current end of allResults
-            const batchToRender = allResults.slice(startIndex); 
-
-            if (batchToRender.length > 0) {
-                resultsContainer.insertAdjacentHTML(
-                    'beforeend',
-                    renderResults(batchToRender, startIndex)
-                );
-
-                attachCheckboxHandlers();
-                resultsContainer.scrollTop = resultsContainer.scrollHeight;
-                
-                // Only update the index after we successfully put it in the DOM
-                window.lastRenderedIndex = allResults.length;
-                lastRenderTime = Date.now();
-            }
         }
     }
 
@@ -524,11 +498,17 @@ console.log('🚀 urls.js is loading...');
             const data = await response.json();
             
             if (response.ok) {
+                // Update running time
                 const runningTimeElem = document.getElementById('running-time');
                 if (runningTimeElem) {
                     const minutes = Math.floor(data.running_time / 60);
                     const seconds = Math.floor(data.running_time % 60);
                     runningTimeElem.textContent = `${minutes}m ${seconds}s`;
+                }
+                
+                // Handle completion
+                if (data.status === 'completed' || data.status === 'stopped') {
+                    handleCrawlComplete();
                 }
             }
         } catch (error) {
@@ -536,8 +516,83 @@ console.log('🚀 urls.js is loading...');
         }
     }
 
+    async function handleCrawlComplete() {
+        isCrawling = false;
+        
+        // Stop local intervals
+        if (resultsInterval) {
+            clearInterval(resultsInterval);
+            resultsInterval = null;
+        }
+        
+        if (statusInterval) {
+            clearInterval(statusInterval);
+            statusInterval = null;
+        }
+        
+        // Stop background monitoring
+        if (currentSessionId && window.__backgroundManager) {
+            window.__backgroundManager.stopCrawl(currentSessionId);
+        }
+        
+        const searchBtn = document.getElementById("search-url-btn");
+        const stopBtn = document.getElementById("stop-crawl-btn");
+        
+        if (searchBtn) {
+            searchBtn.disabled = false;
+            searchBtn.innerHTML = '<i class="bi bi-link-45deg"></i> Начать сканировать';
+        }
+        
+        if (stopBtn) {
+            stopBtn.style.display = 'none';
+        }
+
+        // Update progress bar
+        const progressBar = document.getElementById('crawl-progress-bar');
+        if (progressBar) {
+            progressBar.classList.remove('progress-bar-animated');
+            progressBar.classList.add('bg-success');
+        }
+
+        // Show all results
+        if (allResults.length) {
+            currentPage = 1;
+            paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
+            document.getElementById('results-content').innerHTML = renderResults(paginatedResults, 0);
+
+            const totalPages = Math.ceil(allResults.length / itemsPerPage);
+            renderPagination(totalPages, currentPage);
+            attachCheckboxHandlers();
+            
+            // Auto-select all results
+            selectedItems.clear();
+            allResults.forEach((_, index) => {
+                selectedItems.add(index.toString());
+            });
+            
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            
+            updateMarkAllCheckbox();
+            
+            // Show completion message
+            const statusContainer = document.getElementById('realtime-status');
+            if (statusContainer) {
+                const completionDiv = document.createElement('div');
+                completionDiv.className = 'alert alert-success alert-dismissible fade show mb-2';
+                completionDiv.innerHTML = `
+                    <strong>🎉 Crawling Completed!</strong><br>
+                    <small>Found ${allResults.length} links from the crawl.</small>
+                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+                `;
+                statusContainer.appendChild(completionDiv);
+            }
+        }
+    }
+
     async function stopCrawling() {
-        // ... your existing fetch stop logic ...
         if (currentSessionId) {
             try {
                 await fetch(`${API_BASE_URL}/api/stop-crawl/`, {
@@ -548,162 +603,74 @@ console.log('🚀 urls.js is loading...');
                     },
                     body: JSON.stringify({ session_id: currentSessionId })
                 });
-            } catch (error) { console.error('Error stopping crawl:', error); }
+            } catch (error) {
+                console.error('Error stopping crawl:', error);
+            }
+            
+            // Stop background monitoring
+            if (window.__backgroundManager) {
+                window.__backgroundManager.stopCrawl(currentSessionId);
+            }
         }
         
         isCrawling = false;
         currentSessionId = null;
+        isParsingWithFilters = false;
         
-        // Clean up intervals
-        if (resultsInterval) { clearInterval(resultsInterval); resultsInterval = null; }
-        if (statusInterval) { clearInterval(statusInterval); statusInterval = null; }
-        
-        // --- NEW PAGINATION LOGIC START ---
-        const resultsToShow = isFilterActive ? filteredResults : allResults;
-        const totalPages = Math.ceil(resultsToShow.length / itemsPerPage);
-
-        if (resultsToShow.length > 0) {
-            currentPage = 1;
-            // Slice the results for the first page
-            const firstPageResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
-            
-            // Clear the real-time "stream" and replace with only Page 1
-            const resultsContainer = document.getElementById('results-content');
-            if (resultsContainer) {
-                resultsContainer.innerHTML = renderResults(firstPageResults, 0);
-                resultsContainer.scrollTop = 0; // Scroll back to top
-            }
-
-            // Render the pagination numbers
-            renderPagination(totalPages, currentPage);
+        if (resultsInterval) {
+            clearInterval(resultsInterval);
+            resultsInterval = null;
         }
-        // --- NEW PAGINATION LOGIC END ---
-
-        // UI Reset
+        
+        if (statusInterval) {
+            clearInterval(statusInterval);
+            statusInterval = null;
+        }
+        
         const searchBtn = document.getElementById("search-url-btn");
         const stopBtn = document.getElementById("stop-crawl-btn");
+        
         if (searchBtn) {
             searchBtn.disabled = false;
-            searchBtn.innerHTML = '<i class="bi bi-search"></i> Начать ползание';
+            searchBtn.innerHTML = '<i class="bi bi-link-45deg"></i> Начать сканировать';
         }
-        if (stopBtn) stopBtn.style.display = 'none';
-
-        const progressBar = document.getElementById('crawl-progress-bar');
-        if (progressBar) {
-            progressBar.classList.remove('progress-bar-animated');
-            progressBar.classList.add('bg-success');
+        
+        if (stopBtn) {
+            stopBtn.style.display = 'none';
         }
 
-        attachCheckboxHandlers();
+        if (allResults.length) {
+            currentPage = 1;
+            paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
+            document.getElementById('results-content').innerHTML = renderResults(paginatedResults, 0);
 
-        const pauseBtn = document.getElementById("pause-crawl-btn");
-        if (pauseBtn) pauseBtn.style.display = 'none';
-        
-        isPaused = false;
-    }
-
-    async function togglePauseResume() {
-        const pauseBtn = document.getElementById("pause-crawl-btn");
-        const progressBar = document.getElementById('crawl-progress-bar');
-        const paginationContainer = document.getElementById('url-pagination');
-
-        console.log('Toggling pause/resume...');
-        
-        if (!currentSessionId) return;
-
-        try {
-            const endpoint = isPaused ? 'resume-crawl' : 'pause-crawl';
-            const response = await fetch(`${API_BASE_URL}/api/${endpoint}/`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${localStorage.getItem("accessToken")}`
-                },
-                body: JSON.stringify({ session_id: currentSessionId })
+            const totalPages = Math.ceil(allResults.length / itemsPerPage);
+            renderPagination(totalPages, currentPage);
+            attachCheckboxHandlers();
+            
+            selectedItems.clear();
+            allResults.forEach((_, index) => {
+                selectedItems.add(index.toString());
             });
-
-            if (response.ok) {
-                isPaused = !isPaused;
-                const paginationContainer = document.getElementById('url-pagination'); // Adjust ID to match your HTML
-
-                if (isPaused) {
-                    // UI State: PAUSED
-                    pauseBtn.innerHTML = '<i class="bi bi-play-fill"></i> Резюме';
-                    pauseBtn.className = 'btn btn-success btn-sm ms-2';
-                    progressBar.classList.remove('progress-bar-animated');
-                    progressBar.innerText = "Paused - Browsing Pages";
-                    
-                    clearInterval(resultsInterval); 
-                    clearInterval(renderInterval);
-
-                    // SHOW PAGINATION
-                    if (paginationContainer) paginationContainer.classList.remove('d-none');
-                    
-                    // This triggers the paginated view and calls renderPagination()
-                    applyDisplayFilters(); 
-                } else {
-                    // UI State: RUNNING
-                    pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i> Пауза';
-                    pauseBtn.className = 'btn btn-warning btn-sm ms-2';
-                    progressBar.classList.add('progress-bar-animated');
-                    progressBar.innerText = "Resuming Live Stream...";
-                    
-                    // HIDE PAGINATION
-                    if (paginationContainer) paginationContainer.classList.add('d-none');
-
-                    // Restore full list so "Live Append" works correctly
-                    const resultsContent = document.getElementById('results-content');
-                    resultsContent.innerHTML = renderResults(allResults, 0);
-                    lastRenderedIndex = allResults.length;
-
-                    resultsInterval = setInterval(() => {
-                        fetchCrawlResults(currentSessionId);
-                    }, 1000);
-
-                    startQueueConsumer();
-                }
-            }
-        } catch (error) {
-            console.error('Error toggling pause/resume:', error);
+            
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            
+            updateMarkAllCheckbox();
         }
     }
 
-    function startQueueConsumer() {
-        if (renderInterval) clearInterval(renderInterval);
-        
-        renderInterval = setInterval(() => {
-            // CHANGE: Stop rendering to DOM if paused
-            if (isPaused || renderQueue.length === 0) return;
-
-            const batch = renderQueue.splice(0, 5);
-            const resultsContent = document.getElementById('results-content');
-            
-            // CHANGE: Use lastRenderedIndex instead of calculating lengths
-            const html = renderResults(batch, lastRenderedIndex);
-            resultsContent.insertAdjacentHTML('beforeend', html);
-            
-            lastRenderedIndex += batch.length; // Update the pointer
-            updateMarkAllCheckbox();
-        }, 100); 
-    }
-
+    // FILTER FUNCTIONS
     function getCurrentFilters() {
-        // Helper to convert newlines to a comma-separated string
-        const getMultilineValue = (id) => {
-            return document.getElementById(id).value
-                .split('\n')
-                .map(line => line.trim())
-                .filter(line => line !== '')
-                .join(',');
-        };
-
         return {
             linkType: document.getElementById('link-type-filter').value,
             depth: document.getElementById('depth-filter').value,
-            urlContains: getMultilineValue('url-contains-filter'), // Changed
-            urlExcludes: getMultilineValue('url-excludes-filter'), // Changed
-            domain: getMultilineValue('domain-filter'),           // Changed
+            urlContains: document.getElementById('url-contains-filter').value,
+            urlExcludes: document.getElementById('url-excludes-filter').value,
             textContains: document.getElementById('text-contains-filter').value,
+            domain: document.getElementById('domain-filter').value,
             regex: document.getElementById('regex-filter').value,
             caseSensitive: document.getElementById('case-sensitive').checked,
             invertFilter: document.getElementById('invert-filter').checked
@@ -719,7 +686,7 @@ console.log('🚀 urls.js is loading...');
 
             if (filters.linkType !== 'all') {
                 if (filters.linkType === 'internal' && !item.is_internal) matches = false;
-                if (filters.linkType === 'external' && item.is_internal) matches = false;
+                if (filters.linkType === 'external' && !item.is_external) matches = false;
             }
 
             if (filters.depth !== 'all') {
@@ -753,14 +720,9 @@ console.log('🚀 urls.js is loading...');
             }
 
             if (filters.domain) {
-                try {
-                    const urlObj = new URL(item.url);
-                    const domain = filters.caseSensitive ? urlObj.hostname : urlObj.hostname.toLowerCase();
-                    const searchDomain = filters.caseSensitive ? filters.domain : filters.domain.toLowerCase();
-                    if (!domain.includes(searchDomain)) matches = false;
-                } catch (e) {
-                    matches = false;
-                }
+                const domain = item.domain || new URL(item.url).hostname;
+                const searchDomain = filters.caseSensitive ? filters.domain : filters.domain.toLowerCase();
+                if (!domain.includes(searchDomain)) matches = false;
             }
 
             if (filters.regex) {
@@ -786,23 +748,17 @@ console.log('🚀 urls.js is loading...');
 
         currentPage = 1;
         const resultsToShow = isFilterActive ? filteredResults : allResults;
-
-        if (isPaused) {
-            // DRAW PAGINATED (When paused)
-            paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
-            document.getElementById('results-content').innerHTML = renderResults(
-                paginatedResults, 
-                (currentPage - 1) * itemsPerPage
-            );
+        paginatedResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
+        
+        const resultsContent = document.getElementById('results-content');
+        if (resultsContent) {
+            resultsContent.innerHTML = renderResults(paginatedResults, (currentPage - 1) * itemsPerPage);
+            
             const totalPages = Math.ceil(resultsToShow.length / itemsPerPage);
             renderPagination(totalPages, currentPage);
-        } else {
-            // DRAW FULL LIST (When running/live)
-            document.getElementById('results-content').innerHTML = renderResults(resultsToShow, 0);
-            lastRenderedIndex = resultsToShow.length;
+            attachCheckboxHandlers();
         }
         
-        attachCheckboxHandlers();
         updateFilteredCount();
     }
 
@@ -848,12 +804,10 @@ console.log('🚀 urls.js is loading...');
 
     function toggleFilterPanel() {
         const filterPanel = document.getElementById('filter-controls');
-        if (filterPanel) {
-            if (filterPanel.style.display === 'none' || filterPanel.style.display === '') {
-                filterPanel.style.display = 'block';
-            } else {
-                filterPanel.style.display = 'none';
-            }
+        if (filterPanel.style.display === 'none') {
+            filterPanel.style.display = 'block';
+        } else {
+            filterPanel.style.display = 'none';
         }
     }
 
@@ -871,12 +825,14 @@ console.log('🚀 urls.js is loading...');
             return alert('Crawling is already in progress');
         }
 
+        // Reset state
         allResults = [];
         selectedItems.clear();
         currentPage = 1;
         isCrawling = true;
         isParsingWithFilters = true;
 
+        // Update UI
         const searchBtn = document.getElementById("search-url-btn");
         searchBtn.disabled = true;
         searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Crawling with Filters...';
@@ -892,10 +848,12 @@ console.log('🚀 urls.js is loading...');
         }
         stopBtn.style.display = 'inline-block';
 
+        // Show control panels
         document.getElementById('control-panel').style.display = 'block';
         document.getElementById('console-stats').style.display = 'block';
-        document.getElementById('filter-controls').style.display = 'none';
+        document.getElementById('filter-controls').style.display = 'block';
 
+        // Setup UI
         const resultsContainer = document.getElementById('results-container');
         resultsContainer.innerHTML = `
             <div class="mb-3">
@@ -925,6 +883,7 @@ console.log('🚀 urls.js is loading...');
         document.getElementById('action-buttons-container').style.display = 'none';
 
         try {
+            // Start crawling session
             const response = await fetch(`${API_BASE_URL}/api/start-url-crawl/`, {
                 method: 'POST',
                 headers: { 
@@ -935,7 +894,8 @@ console.log('🚀 urls.js is loading...');
                     url: url,
                     max_depth: depth,
                     use_selenium: true,
-                    filters: filters
+                    filters: filters,
+                    max_workers: 5
                 })
             });
 
@@ -947,16 +907,23 @@ console.log('🚀 urls.js is loading...');
 
             currentSessionId = data.session_id;
 
+            // Register with background manager
+            if (window.__backgroundManager) {
+                window.__backgroundManager.startNewCrawl(currentSessionId, url, depth, filters);
+            }
+
+            // Add status message
             const statusContainer = document.getElementById('realtime-status');
             const filterInfo = document.createElement('div');
             filterInfo.className = 'alert alert-info alert-dismissible fade show mb-2';
             filterInfo.innerHTML = `
                 <strong>Filtered Crawling Started</strong><br>
-                <small>Only links matching your filter criteria will be followed and parsed.</small>
+                <small>Crawl will continue even if you navigate away from this page.</small>
                 <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
             `;
             statusContainer.appendChild(filterInfo);
 
+            // Start local polling
             resultsInterval = setInterval(() => {
                 fetchCrawlResults(currentSessionId);
             }, 1000);
@@ -1091,6 +1058,7 @@ console.log('🚀 urls.js is loading...');
         }
     }
 
+    // Export Functions
     function exportUrls(format) {
         const urlsToExport = isFilterActive ? filteredResults : allResults;
         if (!urlsToExport.length) {
@@ -1215,10 +1183,127 @@ console.log('🚀 urls.js is loading...');
             timeout = setTimeout(later, wait);
         };
     }
+    
+    // Restore background crawl when page loads
+    async function restoreBackgroundCrawl(sessionInfo) {
+        try {
+            const { sessionId, url, depth, filters, stats } = sessionInfo;
+            
+            // Set current session
+            currentSessionId = sessionId;
+            isCrawling = true;
+            
+            // Load existing results from background manager
+            if (window.__backgroundManager) {
+                const existingResults = window.__backgroundManager.getSessionResults(sessionId);
+                allResults = existingResults;
+            }
+            
+            // Update UI
+            const searchBtn = document.getElementById("search-url-btn");
+            if (searchBtn) {
+                searchBtn.disabled = true;
+                searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Ползание...';
+                
+                let stopBtn = document.getElementById("stop-crawl-btn");
+                if (!stopBtn) {
+                    stopBtn = document.createElement('button');
+                    stopBtn.id = 'stop-crawl-btn';
+                    stopBtn.className = 'btn btn-danger btn-sm ms-2';
+                    stopBtn.innerHTML = '<i class="bi bi-stop-fill"></i> Останавливаться';
+                    stopBtn.onclick = stopCrawling;
+                    searchBtn.parentNode.appendChild(stopBtn);
+                }
+                stopBtn.style.display = 'inline-block';
+            }
+            
+            // Show control panels
+            document.getElementById('control-panel').style.display = 'block';
+            document.getElementById('console-stats').style.display = 'block';
+            document.getElementById('filter-controls').style.display = 'block';
+            
+            // Setup UI
+            const resultsContainer = document.getElementById('results-container');
+            resultsContainer.innerHTML = `
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Прогресс сканирования (Background)</h6>
+                        <small class="text-muted">Бег: <span id="running-time">0s</span></small>
+                    </div>
+                    <div class="progress mb-3">
+                        <div id="crawl-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: ${allResults.length}%" aria-valuenow="${allResults.length}" aria-valuemin="0" aria-valuemax="100">
+                            Restored from background...
+                        </div>
+                    </div>
+                    <div id="crawl-stats" class="mb-3"></div>
+                </div>
+                <div id="realtime-status" class="realtime-status mb-3" style="max-height: 300px; overflow-y: auto;"></div>
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Найденные ссылки <span class="badge bg-primary" id="total-links-badge">${allResults.length}</span></h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="results-content"></div>
+                    </div>
+                </div>
+            `;
+            
+            // Show existing results
+            currentPage = 1;
+            paginatedResults = paginateResults(allResults, currentPage, itemsPerPage);
+            document.getElementById('results-content').innerHTML = renderResults(paginatedResults, 0);
+            
+            const totalPages = Math.ceil(allResults.length / itemsPerPage);
+            renderPagination(totalPages, currentPage);
+            attachCheckboxHandlers();
+            
+            // Auto-select all results
+            selectedItems.clear();
+            allResults.forEach((_, index) => {
+                selectedItems.add(index.toString());
+            });
+            
+            const checkboxes = document.querySelectorAll('.result-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+            });
+            
+            updateMarkAllCheckbox();
+            updateProgressBar(allResults.length);
+            
+            if (stats) {
+                updateProgressStats(stats);
+            }
+            
+            // Add status message
+            const statusContainer = document.getElementById('realtime-status');
+            const restoredDiv = document.createElement('div');
+            restoredDiv.className = 'alert alert-info alert-dismissible fade show mb-2';
+            restoredDiv.innerHTML = `
+                <strong>Background Crawl Restored</strong><br>
+                <small>Crawling ${url} (Depth: ${depth}) - ${allResults.length} links found so far.</small>
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+            `;
+            statusContainer.appendChild(restoredDiv);
+            
+            // Start local polling
+            resultsInterval = setInterval(() => {
+                fetchCrawlResults(currentSessionId);
+            }, 1000);
+            
+            statusInterval = setInterval(() => {
+                fetchCrawlStatus(currentSessionId);
+            }, 2000);
+            
+            console.log(`Restored background crawl ${sessionId} with ${allResults.length} results`);
+            
+        } catch (error) {
+            console.error('Error restoring background crawl:', error);
+        }
+    }
 
-    function init() {
-        console.log('✅ INIT: URLs module init() called');
-        
+    function init(params = {}) {
         const searchBtn = document.getElementById("search-url-btn");
         const urlInput = document.getElementById("url-input");
         const depthInput = document.getElementById("url-depth-input");
@@ -1226,26 +1311,46 @@ console.log('🚀 urls.js is loading...');
         const actionButtonsContainer = document.getElementById("action-buttons-container");
 
         if (!searchBtn) {
-            console.error('❌ INIT: search-url-btn not found!');
-            console.log('🔍 Available buttons:', document.querySelectorAll('button'));
+            console.error('Search button not found');
             return;
         }
 
-        console.log('✅ INIT: Elements found:', {
-            searchBtn: !!searchBtn,
-            urlInput: !!urlInput,
-            resultsContainer: !!resultsContainer
-        });
+        // Check if we need to restore background crawls
+        if (params.activeCrawls && params.activeCrawls.length > 0) {
+            console.log('Restoring background crawls:', params.activeCrawls);
+            
+            // Restore the most recent crawl
+            const latestCrawl = params.activeCrawls[params.activeCrawls.length - 1];
+            restoreBackgroundCrawl(latestCrawl);
+        } else {
+            // Initialize empty state
+            allResults = [];
+            selectedItems.clear();
+            
+            if (resultsContainer && !document.getElementById('results-content')) {
+                resultsContainer.innerHTML = `
+                    <div class="text-center p-5">
+                        <i class="bi bi-link-45deg display-1 text-muted"></i>
+                        <h4 class="mt-3">URL Crawler</h4>
+                        <p class="text-muted">Enter a URL to start crawling</p>
+                    </div>
+                `;
+            }
+        }
 
         // Initialize save panel
         initSavePanel();
 
         // Add filter event listeners
-        document.getElementById('apply-filters-btn')?.addEventListener('click', applyDisplayFilters);
-        document.getElementById('clear-filters-btn')?.addEventListener('click', clearFilters);
-        document.getElementById('show-filters-btn')?.addEventListener('click', toggleFilterPanel);
+        const applyFiltersBtn = document.getElementById('apply-filters-btn');
+        const clearFiltersBtn = document.getElementById('clear-filters-btn');
+        const showFiltersBtn = document.getElementById('show-filters-btn');
+        
+        if (applyFiltersBtn) applyFiltersBtn.addEventListener('click', applyDisplayFilters);
+        if (clearFiltersBtn) clearFiltersBtn.addEventListener('click', clearFilters);
+        if (showFiltersBtn) showFiltersBtn.addEventListener('click', toggleFilterPanel);
 
-        // Real-time filtering on input changes
+        // Real-time filtering
         const filterInputs = [
             'url-contains-filter', 'url-excludes-filter', 'text-contains-filter', 'domain-filter', 'regex-filter'
         ];
@@ -1275,9 +1380,8 @@ console.log('🚀 urls.js is loading...');
             }
         });
 
-        // Global export buttons using event delegation
+        // Export button
         document.addEventListener('click', function(e) {
-            // Handle Write to File button (TXT export)
             if (e.target.id === 'write-to-file-btn' || e.target.closest('#write-to-file-btn')) {
                 const urlsToExport = isFilterActive ? filteredResults : allResults;
                 if (urlsToExport.length === 0) {
@@ -1289,25 +1393,33 @@ console.log('🚀 urls.js is loading...');
         });
 
         // Control panel buttons
-        document.getElementById('clear-queue-btn')?.addEventListener('click', () => {
-            if (confirm('Clear all queued URLs?')) {
-                console.log('Clear queue functionality');
-            }
-        });
-
-        document.getElementById('clear-results-btn')?.addEventListener('click', () => {
-            if (confirm('Clear all results?')) {
-                allResults = [];
-                filteredResults = [];
-                selectedItems.clear();
-                document.getElementById('results-content').innerHTML = '';
-                document.getElementById('action-buttons-container').style.display = 'none';
-                document.getElementById('filter-controls').style.display = 'none';
-                document.getElementById('control-panel').style.display = 'none';
-                document.getElementById('console-stats').style.display = 'none';
-                updateFilteredCount();
-            }
-        });
+        const clearQueueBtn = document.getElementById('clear-queue-btn');
+        const clearResultsBtn = document.getElementById('clear-results-btn');
+        
+        if (clearQueueBtn) {
+            clearQueueBtn.addEventListener('click', () => {
+                if (confirm('Clear all queued URLs?')) {
+                    console.log('Clear queue functionality');
+                }
+            });
+        }
+        
+        if (clearResultsBtn) {
+            clearResultsBtn.addEventListener('click', () => {
+                if (confirm('Clear all results?')) {
+                    allResults = [];
+                    filteredResults = [];
+                    selectedItems.clear();
+                    const resultsContent = document.getElementById('results-content');
+                    if (resultsContent) resultsContent.innerHTML = '';
+                    document.getElementById('action-buttons-container').style.display = 'none';
+                    document.getElementById('filter-controls').style.display = 'none';
+                    document.getElementById('control-panel').style.display = 'none';
+                    document.getElementById('console-stats').style.display = 'none';
+                    updateFilteredCount();
+                }
+            });
+        }
 
         // Load projects
         fetch(`${API_BASE_URL}/api/project-list/`, {
@@ -1315,19 +1427,13 @@ console.log('🚀 urls.js is loading...');
         })
         .then(res => res.json())
         .then(projects => {
-            // Project loading if needed
+            // Project loading
         });
 
         // Regular crawling (without filters)
-        searchBtn.addEventListener("click", async function(e) {
-            console.log('🎯 MAIN HANDLER: Search button clicked');
-            e.preventDefault();
-            e.stopPropagation();
-            
+        searchBtn.addEventListener("click", async () => {
             const url = (urlInput.value || '').trim();
             const depth = depthInput.value || 2;
-
-            const filters = typeof getCurrentFilters === 'function' ? getCurrentFilters() : {};
             
             if (!url) {
                 resultsContainer.innerHTML = `<div class="alert alert-danger">Please enter a URL</div>`;
@@ -1340,17 +1446,15 @@ console.log('🚀 urls.js is loading...');
 
             // Reset state
             allResults = [];
-            lastRenderedIndex = 0; // Reset the render pointer
             selectedItems.clear();
             currentPage = 1;
             isCrawling = true;
             isParsingWithFilters = false;
 
-            // Update UI for crawling state
+            // Update UI
             searchBtn.disabled = true;
             searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Ползание...';
             
-            // Add stop button if not exists
             let stopBtn = document.getElementById("stop-crawl-btn");
             if (!stopBtn) {
                 stopBtn = document.createElement('button');
@@ -1365,27 +1469,9 @@ console.log('🚀 urls.js is loading...');
             // Show control panels
             document.getElementById('control-panel').style.display = 'block';
             document.getElementById('console-stats').style.display = 'block';
-            document.getElementById('filter-controls').style.display = 'none';
+            document.getElementById('filter-controls').style.display = 'block';
 
-            isPaused = false; 
-
-            // create the pause button
-            let pauseBtn = document.getElementById("pause-crawl-btn");
-            if (!pauseBtn) {
-                pauseBtn = document.createElement('button');
-                pauseBtn.id = 'pause-crawl-btn';
-                pauseBtn.className = 'btn btn-warning btn-sm ms-2';
-                pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i> Пауза';
-                pauseBtn.onclick = togglePauseResume;
-                searchBtn.parentNode.appendChild(pauseBtn);
-            }
-
-            // 3. Make sure it's visible and reset to "Pause" text
-            pauseBtn.style.display = 'inline-block';
-            pauseBtn.innerHTML = '<i class="bi bi-pause-fill"></i> Пауза';
-            pauseBtn.className = 'btn btn-warning btn-sm ms-2';
-
-            // Clear previous results and setup new UI
+            // Setup UI
             resultsContainer.innerHTML = `
                 <div class="mb-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -1414,8 +1500,7 @@ console.log('🚀 urls.js is loading...');
             actionButtonsContainer.style.display = 'none';
 
             try {
-                console.log('📡 MAIN HANDLER: Sending request to API...');
-                // Start crawling session (without filters)
+                // Start crawling session
                 const response = await fetch(`${API_BASE_URL}/api/start-url-crawl/`, {
                     method: 'POST',
                     headers: { 
@@ -1426,7 +1511,7 @@ console.log('🚀 urls.js is loading...');
                         url: url,
                         max_depth: depth,
                         use_selenium: true,
-                        filters: filters
+                        max_workers: 5
                     })
                 });
 
@@ -1437,97 +1522,48 @@ console.log('🚀 urls.js is loading...');
                 }
 
                 currentSessionId = data.session_id;
-                console.log('✅ MAIN HANDLER: Crawl started with session ID:', currentSessionId);
 
-                // Start polling for results
+                // Register with background manager
+                if (window.__backgroundManager) {
+                    window.__backgroundManager.startNewCrawl(currentSessionId, url, depth, {});
+                }
+
+                // Add status message
+                const statusContainer = document.getElementById('realtime-status');
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'alert alert-info alert-dismissible fade show mb-2';
+                infoDiv.innerHTML = `
+                    <strong>Crawl Started</strong><br>
+                    <small>Crawl will continue in background even if you navigate away.</small>
+                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+                `;
+                statusContainer.appendChild(infoDiv);
+
+                // Start local polling
                 resultsInterval = setInterval(() => {
                     fetchCrawlResults(currentSessionId);
                 }, 1000);
 
-                // Start polling for status
                 statusInterval = setInterval(() => {
                     fetchCrawlStatus(currentSessionId);
                 }, 2000);
 
             } catch (e) {
-                console.error('❌ MAIN HANDLER: Error:', e);
+                console.error(e);
                 resultsContainer.innerHTML = `<div class="alert alert-danger">Failed to start crawling: ${e.message}</div>`;
                 stopCrawling();
             }
         });
-        
-        console.log('✅ INIT: URLs module initialized successfully');
     }
 
-    // Return the module
-    const urlsModule = {
-        init,
-        exportUrls,
+    return { 
+        init, 
+        exportUrls, 
         exportSelectedUrls,
         stopCrawling,
         startFilteredParsing,
         applyDisplayFilters,
-        clearFilters
+        clearFilters,
+        restoreBackgroundCrawl
     };
-
-    // Add to global namespace for auto-initialization
-    if (typeof window !== 'undefined') {
-        if (!window.__pages) window.__pages = {};
-        window.__pages['urls'] = urlsModule;
-        console.log('📦 Module exported to window.__pages["urls"]');
-    }
-
-    return urlsModule;
-
-})();
-
-// ✅ SIMPLIFIED AUTO-INITIALIZATION CODE
-console.log('🔄 AUTO-INIT: Starting automatic initialization...');
-
-// Check if we're in a browser environment
-if (typeof window !== 'undefined') {
-    console.log('🌐 AUTO-INIT: In browser environment');
-    
-    // Create a function to initialize the module;
-    function initializeURLsModule() {
-        console.log('🔧 AUTO-INIT: Initializing URLs module...');
-        
-        // Check if the module exists
-        if (window.__pages && window.__pages['urls']) {
-            const urlsModule = window.__pages['urls'];
-            console.log('✅ AUTO-INIT: Found module in window.__pages["urls"]');
-            
-            if (urlsModule && typeof urlsModule.init === 'function') {
-                console.log('🎯 AUTO-INIT: Calling init() function...');
-                try {
-                    urlsModule.init();
-                    console.log('✅ AUTO-INIT: init() called successfully');
-                } catch (error) {
-                    console.error('❌ AUTO-INIT: Error calling init():', error);
-                }
-            } else {
-                console.error('❌ AUTO-INIT: init function not found in module');
-            }
-        } else {
-            console.error('❌ AUTO-INIT: Module not found in window.__pages');
-            console.log('📋 AUTO-INIT: Available in window.__pages:', Object.keys(window.__pages || {}));
-        }
-    }
-    
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('📄 AUTO-INIT: DOM fully loaded, initializing...');
-            setTimeout(initializeURLsModule, 100);
-        });
-    } else {
-        console.log('⚡ AUTO-INIT: DOM already ready, initializing...');
-        setTimeout(initializeURLsModule, 100);
-    }
-    
-    // Expose init function globally for manual calling
-    window.initURLs = initializeURLsModule;
-    console.log('🔧 AUTO-INIT: initURLs() function available globally');
-}
-
-console.log('✅ urls.js loaded completely');
+}));

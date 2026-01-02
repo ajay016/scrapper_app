@@ -66,7 +66,6 @@ BULK_SEARCH_STOP_FLAG = threading.Event()
 @permission_classes([IsAuthenticated])
 def current_user(request):
     serializer = UserSerializer(request.user)
-    print('serializer.data: ', serializer.data)
     return Response(serializer.data)
 
 
@@ -514,11 +513,7 @@ def save_bulk_keyword_results(request):
     keyword_results = request.data.get("keyword_results", [])
     folder_id = request.data.get("folder_id")
     project_id = request.data.get("project_id")
-    
-    print('bulk_data: ', bool(bulk_data))
-    print('keyword_results length: ', len(keyword_results))
-    print('project_id: ', project_id)
-    print('folder_id: ', folder_id)
+
 
     if not bulk_data or not keyword_results:
         return Response({"error": "Missing bulk_data or keyword_results"}, status=400)
@@ -750,13 +745,11 @@ def project_folders(request, project_id):
 def folder_details(request, folder_id):
     # 1. Get folder
     folder = ProjectFolder.objects.filter(id=folder_id, project__user=request.user).first()
-    print('folder: ', folder)
     if not folder:
         return Response({"error": "Folder not found"}, status=404)
 
     # 2. Get last keyword associated with this folder
     keyword = folder.keywords.order_by('-created_at').first()
-    print('keyword: ', keyword)
     if not keyword:
         return Response({"keyword": None, "results": []})
 
@@ -801,8 +794,6 @@ def keywords_list(request):
 def delete_folders(request):
     ids = request.data.get("ids", [])
 
-    print("All the folder ids to be deleted:", ids)
-
     if not isinstance(ids, list) or not ids:
         return Response(
             {"detail": "Please provide a list of folder IDs."},
@@ -814,8 +805,6 @@ def delete_folders(request):
         id__in=ids,
         project__user=request.user
     ).delete()
-    
-    print(f"{deleted_count} folder(s) deleted successfully.")
 
     return Response(
         {
@@ -832,8 +821,6 @@ def delete_project_folders(request):
     ids = request.data.get("ids", [])
     project_id = request.data.get('project_id', '')
 
-    print("All the folder ids to be deleted:", ids)
-
     if not isinstance(ids, list) or not ids:
         return Response(
             {"detail": "Please provide a list of folder IDs."},
@@ -848,8 +835,6 @@ def delete_project_folders(request):
 
     num_folders = folders_to_delete.count()  # ✅ count only folders
     folders_to_delete.delete()
-        
-    print(f"{num_folders} folder(s) deleted successfully.")
 
     return Response(
         {
@@ -939,8 +924,6 @@ def upload_keywords(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-# Set up logging
-logger = logging.getLogger(__name__)
 
 # In-memory storage for real-time updates
 crawler_sessions = {}
@@ -960,6 +943,10 @@ class FastURLCrawler:
         self.use_selenium = use_selenium
         self.filters = filters or {}
         self.max_workers = max_workers  # Parallel processing
+        self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        
+        self._pause_event = threading.Event()
+        self._pause_event.set()
         
         # Optimized session with connection pooling
         self.session = requests.Session()
@@ -990,91 +977,92 @@ class FastURLCrawler:
         self.last_request_time = time.time()
     
     def should_follow_link(self, link):
-        """Optimized filter checking"""
+        """Air-tight filter checking"""
         if not self.filters:
             return link.get('is_internal', False)
             
         try:
-            url = link['url']
+            url = link.get('url', '')
             is_internal = link.get('is_internal', False)
+            case_sensitive = self.filters.get('caseSensitive', False)
             
-            # ⚠️ CRITICAL: NEVER follow external links
+            # 1. ALWAYS block external links first
             if not is_internal:
                 return False
             
-            # Quick depth check first (cheapest)
-            depth = link.get('depth', 0)
-            depth_filter = self.filters.get('depth', 'all')
-            if depth_filter != 'all':
-                if depth_filter == '3' and depth < 3:
-                    return False
-                elif depth_filter != '3' and int(depth_filter) != depth:
-                    return False
-            
-            # URL contains check
-            url_contains = self.filters.get('urlContains', '')
-            if url_contains:
-                case_sensitive = self.filters.get('caseSensitive', False)
-                if not case_sensitive:
-                    url = url.lower()
-                    url_contains = url_contains.lower()
-                if url_contains not in url:
-                    return False
-            
-            # URL excludes check
-            url_excludes = self.filters.get('urlExcludes', '')
-            if url_excludes:
-                case_sensitive = self.filters.get('caseSensitive', False)
-                excludes = [ex.strip() for ex in url_excludes.split(',') if ex.strip()]
+            # Pre-process URL once for comparison
+            check_url = url if case_sensitive else url.lower()
+
+            # 2. URL CONTAINS (Whitelist/Requirement)
+            url_contains_raw = self.filters.get('urlContains', '')
+            if url_contains_raw:
+                # Clean the list: split by comma, strip whitespace, remove empty strings
+                keywords = [k.strip() for k in url_contains_raw.split(',') if k.strip()]
+                
+                if keywords:
+                    # If keywords exist, URL MUST match at least one
+                    match_found = any(
+                        (k if case_sensitive else k.lower()) in check_url 
+                        for k in keywords
+                    )
+                    if not match_found:
+                        return False
+
+            # 3. URL EXCLUDES (Blacklist)
+            url_excludes_raw = self.filters.get('urlExcludes', '')
+            if url_excludes_raw:
+                excludes = [ex.strip() for ex in url_excludes_raw.split(',') if ex.strip()]
                 for exclude in excludes:
-                    if not case_sensitive:
-                        exclude = exclude.lower()
-                    if exclude in url:
+                    check_exclude = exclude if case_sensitive else exclude.lower()
+                    if check_exclude in check_url:
                         return False
-            
-            # Text contains check
-            text_contains = self.filters.get('textContains', '')
-            if text_contains:
+
+            # 4. TEXT CONTAINS (Whitelist)
+            text_contains_raw = self.filters.get('textContains', '')
+            if text_contains_raw:
                 text = link.get('text', '')
-                if text:
-                    case_sensitive = self.filters.get('caseSensitive', False)
-                    if not case_sensitive:
-                        text = text.lower()
-                        text_contains = text_contains.lower()
-                    if text_contains not in text:
+                check_text = text if case_sensitive else text.lower()
+                text_keywords = [tk.strip() for tk in text_contains_raw.split(',') if tk.strip()]
+                
+                if text_keywords:
+                    text_match = any(
+                        (tk if case_sensitive else tk.lower()) in check_text 
+                        for tk in text_keywords
+                    )
+                    if not text_match:
                         return False
-            
-            # Domain filter
-            domain_filter = self.filters.get('domain', '')
-            if domain_filter:
+
+            # 5. DOMAIN FILTER
+            domain_filter_raw = self.filters.get('domain', '')
+            if domain_filter_raw:
                 link_domain = urlparse(url).netloc
-                case_sensitive = self.filters.get('caseSensitive', False)
-                if not case_sensitive:
-                    link_domain = link_domain.lower()
-                    domain_filter = domain_filter.lower()
-                if domain_filter not in link_domain:
+                domain_list = [d.strip().lower() for d in domain_filter_raw.split(',') if d.strip()]
+                if not any(d in link_domain.lower() for d in domain_list):
                     return False
-            
-            # Regex filter (most expensive, do last)
-            regex_filter = self.filters.get('regex', '')
-            if regex_filter:
-                try:
-                    flags = 0 if self.filters.get('caseSensitive', False) else re.IGNORECASE
-                    pattern = re.compile(regex_filter, flags)
-                    if not pattern.search(url):
-                        return False
-                except re.error:
-                    pass
-            
-            if self.filters.get('invertFilter', False):
-                return False
-            
-            return True
+
+            return True # Passed all checks
             
         except Exception as e:
-            logger.error(f"Error in should_follow_link: {e}")
+            logger.error(f"Filter Error: {e}")
             return False
     
+    
+    def check_pause(self):
+        """Blocks the thread if _pause_event is cleared"""
+        self._pause_event.wait()
+
+    def pause(self):
+        """Clears the event, causing wait() to block"""
+        self._pause_event.clear()
+        if self.session_id in crawler_sessions:
+            crawler_sessions[self.session_id]['status'] = 'paused'
+
+    def resume(self):
+        """Sets the event, allowing wait() to proceed"""
+        self._pause_event.set()
+        if self.session_id in crawler_sessions:
+            crawler_sessions[self.session_id]['status'] = 'running'
+            
     def crawl(self):
         """Optimized crawling with parallel processing"""
         try:
@@ -1101,6 +1089,9 @@ class FastURLCrawler:
             batch_size = 10  # Process URLs in batches
             
             while queue and self.is_running:
+                self.check_pause()
+                
+                if not self.is_running: break
                 # Take a batch of URLs to process in parallel
                 current_batch = []
                 while queue and len(current_batch) < batch_size:
@@ -1135,52 +1126,56 @@ class FastURLCrawler:
                     })
                             
         except Exception as e:
-            logger.error(f"Crawling error: {e}")
-            self.add_result({
-                'type': 'error',
-                'message': f'Crawling error: {str(e)}'
-            })
+            # ONLY log and send error to UI if the crawler was actually supposed to be running.
+            # If self.is_running is False, it means we are shutting down, so we ignore the error.
+            if self.is_running: 
+                logger.error(f"Crawling error: {e}")
+                self.add_result({
+                    'type': 'error',
+                    'message': f'Crawling error: {str(e)}'
+                })
         finally:
-            self.close_driver()
-            if self.session_id in crawler_sessions:
-                crawler_sessions[self.session_id]['status'] = 'completed'
-            
-            self.add_result({
-                'type': 'complete',
-                'message': f'Crawling completed. Visited {len(self.visited_urls)} pages, found {len(self.found_links)} links.',
-                'total_links': len(self.found_links),
-                'total_pages': len(self.visited_urls),
-                'filtered_links': crawler_sessions[self.session_id]['stats']['filtered_links']
-            })
+            # This calls the stop() method which now handles all the cleanup
+            # including closing the driver and shutting down the executor.
+            self.stop()
     
     def process_batch_parallel(self, url_batch):
-        """Process a batch of URLs in parallel"""
+        """Process a batch of URLs using the persistent executor"""
         all_new_links = []
         
-        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(url_batch))) as executor:
+        # 1. Mark them as visited IMMEDIATELY before starting the threads
+        with self.url_lock:
+            for url, depth in url_batch:
+                self.visited_urls.add(url)
+        
+        # CHANGE 2: Removed the 'with ThreadPoolExecutor' block. 
+        # We use the persistent self.executor instead to avoid recreation errors.
+        try:
             future_to_url = {
-                executor.submit(self.process_single_page, url, depth): (url, depth) 
+                self.executor.submit(self.process_single_page, url, depth): (url, depth) 
                 for url, depth in url_batch
             }
             
             for future in as_completed(future_to_url):
                 url, depth = future_to_url[future]
                 try:
-                    new_links = future.result(timeout=15)  # 15 second timeout per page
+                    new_links = future.result(timeout=15)
                     all_new_links.extend(new_links)
-                    
-                    # Mark as visited only if successful
                     with self.url_lock:
                         self.visited_urls.add(url)
-                        
                 except Exception as e:
                     logger.warning(f"Failed to process {url}: {e}")
                     with self.url_lock:
                         crawler_sessions[self.session_id]['stats']['errors'] += 1
+        except RuntimeError:
+            # This catches the "interpreter shutdown" error specifically
+            logger.info("Executor accessed during shutdown. Stopping batch.")
         
         return all_new_links
     
     def process_single_page(self, url, depth):
+        # check the pause state
+        self.check_pause()
         """Process a single page - optimized version"""
         self.rate_limit()  # Respect rate limiting
         
@@ -1199,27 +1194,38 @@ class FastURLCrawler:
             # Filter and process found links
             filtered_links = []
             for link in links:
+                self.check_pause()
+                if not self.is_running: break
+                
+                if not self.should_follow_link(link):
+                    with self.url_lock:
+                        crawler_sessions[self.session_id]['stats']['filtered_links'] += 1
+                    continue 
+
                 with self.url_lock:
                     if link['url'] in self.all_unique_urls:
                         crawler_sessions[self.session_id]['stats']['duplicates_skipped'] += 1
                         continue
                     
                     self.all_unique_urls.add(link['url'])
+                    # Increment global stats immediately
                     crawler_sessions[self.session_id]['stats']['total_found'] += 1
+                    current_total = crawler_sessions[self.session_id]['stats']['total_found']
                 
-                link['depth'] = depth
+                # FIX 1: Set correct depth (Parent Depth + 1)
+                link['depth'] = depth + 1 
                 link['found_at'] = time.time()
                 filtered_links.append(link)
                 
-                # Real-time update for each link
+                # FIX 2: Use the synchronized global counter for accurate UI reporting
                 self.add_result({
                     'type': 'link_found',
                     'link': link,
-                    'total_found': len(self.found_links) + len(filtered_links),
+                    'total_found': current_total, 
                     'total_visited': len(self.visited_urls) + 1
                 })
             
-            # Add to found links
+            # SUCCESS: Add to class-level found_links once and return
             with self.url_lock:
                 self.found_links.extend(filtered_links)
             
@@ -1366,11 +1372,26 @@ class FastURLCrawler:
             self.driver = None
     
     def stop(self):
-        """Stop the crawler"""
         self.is_running = False
+        self.resume()
+        
+        if hasattr(self, 'executor'):
+            self.executor.shutdown(wait=False)
+            
         self.close_driver()
+        
         if self.session_id in crawler_sessions:
-            crawler_sessions[self.session_id]['status'] = 'stopped'
+            crawler_sessions[self.session_id]['status'] = 'completed'
+            
+            # Use the STATS we've been tracking for the most accurate numbers
+            stats = crawler_sessions[self.session_id]['stats']
+            
+            self.add_result({
+                'type': 'complete',
+                'message': f'🎉 Crawl finished. Visited {stats["pages_crawled"]} pages.',
+                'total_links': stats['total_found'],
+                'total_pages': stats['pages_crawled']
+            })
             
             
 # Session cleanup function
@@ -1456,6 +1477,45 @@ def start_url_crawl(request):
     except Exception as e:
         logger.error(f"Failed to start fast crawling: {e}")
         return JsonResponse({'error': f'Failed to start crawling: {str(e)}'}, status=500)
+    
+    
+@csrf_exempt
+@require_http_methods(["POST"])
+def pause_url_crawl(request):
+    try:
+        data = json.loads(request.body)
+        session_id = data.get('session_id')
+        
+        print('Pausing session: ', session_id)
+        
+        if session_id in crawler_sessions:
+            crawler = crawler_sessions[session_id].get('crawler')
+            if crawler:
+                crawler.pause()
+                return JsonResponse({'status': 'paused'})
+        
+        return JsonResponse({'error': 'Session not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def resume_url_crawl(request):
+    try:
+        data = json.loads(request.body)
+        session_id = data.get('session_id')
+        
+        print('Resuming session: ', session_id)
+        
+        if session_id in crawler_sessions:
+            crawler = crawler_sessions[session_id].get('crawler')
+            if crawler:
+                crawler.resume()
+                return JsonResponse({'status': 'resumed'})
+        
+        return JsonResponse({'error': 'Session not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @require_http_methods(["GET"])

@@ -35,5 +35,8 @@
             "allowToChangeInstallationDirectory": true,
             "artifactName": "${productName} Setup ${version}.exe"
         }
+    },
+    "dependencies": {
+        "7zip-bin": "^5.2.0"
     }
 }

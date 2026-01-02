@@ -1425,6 +1425,44 @@ body {
 /* Keyword pagination styles ends */
 
 
+/* URL pagination matching Keyword style starts */
+.url-pagination-list .page-item .page-link {
+    background-color: #2d3748;
+    border-color: #4a5568;
+    color: #ecc94b;
+    transition: all 0.3s ease;
+    margin: 0 3px;
+    border-radius: 4px;
+    box-shadow: none; /* Removes Bootstrap default focus shadow */
+}
+
+.url-pagination-list .page-item .page-link:hover {
+    background-color: #ecc94b;
+    color: #2d3748;
+    border-color: #ecc94b;
+    transform: translateY(-2px);
+}
+
+.url-pagination-list .page-item.active .page-link {
+    background-color: #ecc94b;
+    border-color: #ecc94b;
+    color: #2d3748;
+    font-weight: 600;
+}
+
+.url-pagination-list .page-item.disabled .page-link {
+    background-color: #1a202c; /* Slightly darker for disabled */
+    border-color: #2d3748;
+    color: #718096;
+}
+
+/* Optional: Smooth transition for the container appearance */
+.url-pagination {
+    transition: opacity 0.4s ease-in-out;
+}
+/* URL pagination matching Keyword style ends */
+
+
 /* Card stream design starts */
 .card-stream {
   opacity: 0;
@@ -1458,3 +1496,11 @@ body {
     max-height: 500px;
     overflow-y: auto;
 }
+
+/* URLs Page Styles starts */
+#filter-controls {
+    /* This adds a smooth fade when display is changed via JS */
+    transition: all 0.3s ease-in-out;
+    opacity: 1;
+}
+/* URLs Page Styles ends */

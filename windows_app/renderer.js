@@ -129,9 +129,21 @@ document.querySelector('.action-bar .btn-outline-secondary i.bi-tag')?.parentEle
 document.querySelector('.new-project-btn')?.parentElement
     ?.addEventListener('click', () => loadPage(pageContent, 'create_project'));
 
+// For new window (from main app)
+document.querySelector('.bi-link-45deg')?.parentElement?.addEventListener('click', (e) => {
+    e.preventDefault();
+        console.log("🖱️ URLs button clicked!");
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.send("open-urls-window");
+});
 
-document.querySelector('.action-bar .btn-outline-secondary i.bi-link-45deg')?.parentElement
-    ?.addEventListener('click', () => loadPage(pageContent, 'urls'));
+document.querySelector('.search')?.parentElement?.addEventListener('click', (e) => {
+    e.preventDefault();
+    console.log("🖱️ URLs button clicked!");
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.send("open-urls-window");
+});
+
 // New Project button → load new project page
 document.querySelector('.action-bar .btn-primary i.bi-plus-circle')?.parentElement
     ?.addEventListener('click', () => loadPage(pageContent, 'create_project'));
@@ -238,8 +250,8 @@ async function refreshToken() {
 
 
 
-// // Remove this in production starts
-// // Forward renderer errors to main process
+// Remove this in production starts
+// Forward renderer errors to main process
 window.addEventListener('error', (event) => {
     ipcRenderer.send('renderer-error', `${event.message} at ${event.filename}:${event.lineno}`);
 });
@@ -247,5 +259,5 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
     ipcRenderer.send('renderer-error', `Unhandled Promise Rejection: ${event.reason}`);
 });
-// // Forward renderer errors to main process ends
-// // Remove this in production ends
+// Forward renderer errors to main process ends
+// Remove this in production ends

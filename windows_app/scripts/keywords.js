@@ -1335,7 +1335,7 @@
         })
             .then(res => res.json())
             .then(projects => {
-                projectSelect.innerHTML = `<option value="">Select Project</option>`;
+                projectSelect.innerHTML = `<option value="">Выберите проект</option>`;
                 projects.forEach(p => {
                     projectSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
                 });
@@ -1542,7 +1542,7 @@
                 searchBtn.disabled = true;
                 searchBtn.innerHTML = `
                     <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    Searching...
+                   Идет поиск...
                 `;
                 
 
@@ -1562,7 +1562,7 @@
                         <div class="spinner-border text-primary mb-2" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <p class="searching-pulse">Searching for "${keyword}"...</p>
+                        <p class="searching-pulse">Поиск "${keyword}"...</p>
                     </div>
                     <div id="progress-container" class="mt-2">
                         <div class="progress">
@@ -1630,19 +1630,19 @@
                         <input class="form-check-input" type="checkbox" id="mark-all-checkbox" checked>
                         <label class="form-check-label" for="mark-all-checkbox">Mark All</label>
                     </div>
-                    <button id="save-selected-btn" class="btn btn-primary btn-sm">Save Selected</button>
+                    <button id="save-selected-btn" class="btn btn-primary btn-sm">Сохранить выбранное</button>
                     <div class="dropdown ms-2">
                         <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
                             <i class="bi bi-download"></i>
-                            Export
+                          Экспорт
                         </button>
                         <ul class="dropdown-menu">
-                            <li><a class="dropdown-item export-btn" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> Export as CSV</a></li>
-                            <li><a class="dropdown-item export-btn" href="#" data-format="excel"><i class="bi bi-file-earmark-excel"></i> Export as Excel</a></li>
-                            <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Export as PDF</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="csv"><i class="bi bi-filetype-csv"></i> Экспорт as CSV</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="excel"><i class="bi bi-file-earmark-excel"></i> Экспорт as Excel</a></li>
+                            <li><a class="dropdown-item export-btn" href="#" data-format="pdf"><i class="bi bi-filetype-pdf"></i> Экспорт as PDF</a></li>
                         </ul>
                     </div>
-                    <div id="links-counter" class="links-counter ms-3 text-muted small">Links: 0</div>
+                    <div id="links-counter" class="links-counter ms-3 text-muted small">Ссылки: 0</div>
                 `;
 
                 // Add export button event listeners
