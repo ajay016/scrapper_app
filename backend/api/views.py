@@ -928,8 +928,6 @@ def upload_keywords(request):
 # In-memory storage for real-time updates
 crawler_sessions = {}
 
-crawler_sessions = {}
-
 class FastURLCrawler:
     def __init__(self, session_id, base_url, max_depth=2, use_selenium=False, filters=None, max_workers=5):
         self.session_id = session_id
@@ -963,6 +961,8 @@ class FastURLCrawler:
         
         self.all_unique_urls = set()
         self.url_lock = threading.Lock()  # Thread safety
+        
+        self.queue = deque([(self.base_url, 0)])
         
         # Rate limiting
         self.last_request_time = 0
@@ -1065,6 +1065,14 @@ class FastURLCrawler:
             
     def crawl(self):
         """Optimized crawling with parallel processing"""
+        # If the executor was previously shut down, we must recreate it
+        try:
+            # Test if executor is alive
+            self.executor.submit(lambda: None)
+        except (RuntimeError, AttributeError):
+            logger.info("Re-initializing executor for session")
+            self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+            
         try:
             if self.session_id not in crawler_sessions:
                 crawler_sessions[self.session_id] = {
@@ -1085,17 +1093,18 @@ class FastURLCrawler:
                     }
                 }
             
-            queue = deque([(self.base_url, 0)])
+            # queue = deque([(self.base_url, 0)])
             batch_size = 10  # Process URLs in batches
             
-            while queue and self.is_running:
+            while self.queue and self.is_running:
                 self.check_pause()
                 
                 if not self.is_running: break
                 # Take a batch of URLs to process in parallel
                 current_batch = []
-                while queue and len(current_batch) < batch_size:
-                    url, depth = queue.popleft()
+                while self.queue and len(current_batch) < batch_size:
+                    url, depth = self.queue.popleft() # Use self.queue
+                    
                     if url not in self.visited_urls and depth <= self.max_depth:
                         current_batch.append((url, depth))
                 
@@ -1107,9 +1116,9 @@ class FastURLCrawler:
                 
                 # Add new links to queue
                 for link in new_links:
-                    if link['url'] not in self.visited_urls and link.get('depth', 0) < self.max_depth:
+                    if link['url'] not in self.visited_urls and link.get('depth', 0) <= self.max_depth:
                         if self.should_follow_link(link):
-                            queue.append((link['url'], link.get('depth', 0) + 1))
+                            self.queue.append((link['url'], link.get('depth', 0)))
                         else:
                             with self.url_lock:
                                 crawler_sessions[self.session_id]['stats']['filtered_links'] += 1
@@ -1120,9 +1129,9 @@ class FastURLCrawler:
                         'type': 'progress',
                         'visited': len(self.visited_urls),
                         'found': len(self.found_links),
-                        'queued': len(queue),
+                        'queued': len(self.queue),
                         'filtered': crawler_sessions[self.session_id]['stats']['filtered_links'],
-                        'message': f'Progress: {len(self.visited_urls)} pages, {len(self.found_links)} links, {len(queue)} queued'
+                        'message': f'Progress: {len(self.visited_urls)} pages, {len(self.found_links)} links, {len(self.queue)} queued'
                     })
                             
         except Exception as e:
@@ -1157,16 +1166,24 @@ class FastURLCrawler:
             }
             
             for future in as_completed(future_to_url):
+                # If the crawler was stopped while these threads were working, ignore the results
+                if not self.is_running:
+                    break
+                
                 url, depth = future_to_url[future]
                 try:
                     new_links = future.result(timeout=15)
-                    all_new_links.extend(new_links)
-                    with self.url_lock:
-                        self.visited_urls.add(url)
+                    # Only add to results and visited list if we are still running
+                    if self.is_running:
+                        all_new_links.extend(new_links)
+                        with self.url_lock:
+                            self.visited_urls.add(url)
                 except Exception as e:
-                    logger.warning(f"Failed to process {url}: {e}")
-                    with self.url_lock:
-                        crawler_sessions[self.session_id]['stats']['errors'] += 1
+                    if self.is_running: # Only log errors if we didn't intentionally stop
+                        logger.warning(f"Failed to process {url}: {e}")
+                        with self.url_lock:
+                            crawler_sessions[self.session_id]['stats']['errors'] += 1
+                            
         except RuntimeError:
             # This catches the "interpreter shutdown" error specifically
             logger.info("Executor accessed during shutdown. Stopping batch.")
@@ -1186,10 +1203,12 @@ class FastURLCrawler:
             
             # Try with BeautifulSoup first
             links = self.fast_process_with_beautifulsoup(url, depth)
+            if not self.is_running: return []
             
             # Fallback to Selenium if needed and enabled
             if not links and self.use_selenium:
                 links = self.fast_process_with_selenium(url, depth)
+                if not self.is_running: return []
             
             # Filter and process found links
             filtered_links = []
@@ -1355,9 +1374,13 @@ class FastURLCrawler:
                 logger.error(f"Failed to create driver: {e}")
                 return None
         return self.driver
-    
+                
     def add_result(self, result):
-        """Thread-safe result adding"""
+        # Allow 'complete' or 'error' messages through even if is_running is False
+        # This ensures the UI gets the final status update.
+        if not self.is_running and result.get('type') not in ['complete', 'error']:
+            return 
+            
         if self.session_id in crawler_sessions:
             with self.url_lock:
                 crawler_sessions[self.session_id]['results'].append(result)
@@ -1372,20 +1395,36 @@ class FastURLCrawler:
             self.driver = None
     
     def stop(self):
-        self.is_running = False
-        self.resume()
+        # 1. Prevent redundant calls
+        if not hasattr(self, 'is_running') or not self.is_running:
+            # Check if we still need to set the status to completed
+            if self.session_id in crawler_sessions and crawler_sessions[self.session_id]['status'] == 'running':
+                crawler_sessions[self.session_id]['status'] = 'completed'
+            return
         
+        # 2. EMERGENCY BRAKE: Set this FIRST.
+        self.is_running = False 
+        self._pause_event.set() # Release anyone waiting on pause
+        
+        # 3. Shutdown executor and CANCEL pending tasks
         if hasattr(self, 'executor'):
-            self.executor.shutdown(wait=False)
-            
-        self.close_driver()
+            try:
+                self.executor.shutdown(wait=False, cancel_futures=True)
+            except (TypeError, RuntimeError):
+                self.executor.shutdown(wait=False)
+                
+        # 4. Kill Selenium immediately
+        self.close_driver() 
         
+        # 5. Update session status
         if self.session_id in crawler_sessions:
-            crawler_sessions[self.session_id]['status'] = 'completed'
-            
-            # Use the STATS we've been tracking for the most accurate numbers
+            current_status = crawler_sessions[self.session_id].get('status')
+            if current_status not in ['stopped', 'paused']:
+                crawler_sessions[self.session_id]['status'] = 'completed'
+
             stats = crawler_sessions[self.session_id]['stats']
             
+            # 6. Send Final Stats (This works now because we fixed add_result)
             self.add_result({
                 'type': 'complete',
                 'message': f'🎉 Crawl finished. Visited {stats["pages_crawled"]} pages.',
@@ -1396,17 +1435,28 @@ class FastURLCrawler:
             
 # Session cleanup function
 def cleanup_old_sessions():
-    """Remove sessions older than 1 hour"""
+    """Force stop crawlers where the user has closed the tab"""
     current_time = time.time()
     sessions_to_remove = []
     
-    for session_id, session_data in crawler_sessions.items():
-        if current_time - session_data['started_at'] > 3600:  # 1 hour
+    # Use list() to avoid "dictionary changed size during iteration" error
+    for session_id, session_data in list(crawler_sessions.items()):
+        last_polled = session_data.get('last_polled', 0)
+        started_at = session_data.get('started_at', 0)
+        
+        # 1. KILL if no poll in 30 seconds (User closed tab)
+        # 2. KILL if session is older than 2 hours (Safety limit)
+        if (current_time - last_polled > 30) or (current_time - started_at > 7200):
+            logger.info(f"Cleaning up zombie session: {session_id}")
+            
+            crawler = session_data.get('crawler')
+            if crawler:
+                crawler.stop() # This kills threads and Selenium
+            
             sessions_to_remove.append(session_id)
     
     for session_id in sessions_to_remove:
-        if session_id in crawler_sessions:
-            crawler_sessions.pop(session_id)
+        crawler_sessions.pop(session_id, None)
 
 # Update your start_url_crawl function to use FastURLCrawler
 @require_http_methods(["POST"])
@@ -1421,6 +1471,13 @@ def start_url_crawl(request):
         max_depth = int(data.get('max_depth', 2))
         use_selenium = data.get('use_selenium', False)
         max_workers = int(data.get('max_workers', 5))  # New parameter
+        
+        # --- ADD THIS: Prevent "Phantom Crawlers" ---
+        for old_id, session in list(crawler_sessions.items()):
+            if session['crawler'] and session['crawler'].base_url == url:
+                logger.info(f"Stopping existing crawler for {url} before starting new one")
+                session['crawler'].stop()
+                del crawler_sessions[old_id]
         
         filters = data.get('filters', {})
         
@@ -1440,6 +1497,7 @@ def start_url_crawl(request):
             'crawler': None,
             'results': [],
             'started_at': time.time(),
+            'last_polled': time.time(),
             'status': 'starting',
             'filters': filters,
             'stats': {
@@ -1508,9 +1566,23 @@ def resume_url_crawl(request):
         print('Resuming session: ', session_id)
         
         if session_id in crawler_sessions:
-            crawler = crawler_sessions[session_id].get('crawler')
+            session_data = crawler_sessions[session_id]
+            crawler = session_data.get('crawler')
+            
+            if session_data.get('status') == 'stopped':
+             return JsonResponse({'error': 'Cannot resume a stopped crawl. Please start a new session.'}, status=400)
+         
             if crawler:
                 crawler.resume()
+                
+                # 2. Safety Check: If the thread actually died, restart it
+                # (This happens if 'stop' was called instead of 'pause')
+                if not crawler.is_running:
+                    crawler.is_running = True
+                    thread = threading.Thread(target=crawler.crawl)
+                    thread.daemon = True
+                    thread.start()
+
                 return JsonResponse({'status': 'resumed'})
         
         return JsonResponse({'error': 'Session not found'}, status=404)
@@ -1533,6 +1605,7 @@ def get_crawl_results(request):
         return JsonResponse({'error': 'Invalid session ID or session expired'}, status=404)
         
     session = crawler_sessions[session_id]
+    session['last_polled'] = time.time()
     
     # Get new results and clear them from session
     results = session['results'].copy()
@@ -1576,27 +1649,34 @@ def get_crawl_status(request):
 @require_http_methods(["POST"])
 @csrf_exempt
 def stop_crawl(request):
-    """Stop a crawling session"""
+    """Stop a crawling session with correct state management"""
     try:
         data = json.loads(request.body)
         session_id = data.get('session_id')
         
+        # 1. Keep your original explicit validation
         if not session_id:
             return JsonResponse({'error': 'Session ID is required'}, status=400)
             
-        if session_id not in crawler_sessions:
-            return JsonResponse({'error': 'Invalid session ID'}, status=404)
+        if session_id in crawler_sessions:
+            session = crawler_sessions[session_id]
             
-        session = crawler_sessions[session_id]
-        if session['crawler']:
-            session['crawler'].stop()
+            # 2. CHANGE: Set status to 'stopped' BEFORE calling crawler.stop()
+            # This ensures the crawler's internal logic doesn't overwrite this with 'completed'
             session['status'] = 'stopped'
             
-        logger.info(f"Stopped crawling session {session_id}")
+            if session['crawler']:
+                session['crawler'].stop()
             
-        return JsonResponse({'success': True, 'message': 'Crawling stopped'})
+            # 3. Keep your original logging
+            logger.info(f"Stopped crawling session {session_id}")
+            
+            return JsonResponse({'success': True, 'message': 'Crawling stopped'})
+        
+        return JsonResponse({'error': 'Invalid session ID'}, status=404)
         
     except Exception as e:
+        # 4. Keep your original error logging
         logger.error(f"Failed to stop crawling: {e}")
         return JsonResponse({'error': f'Failed to stop crawling: {str(e)}'}, status=500)
 

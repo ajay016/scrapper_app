@@ -8,13 +8,13 @@ let win; // Global reference to main window
 
 // // Remove this in production starts
 // // --- Open DevTools automatically ---
-ipcMain.on("open-devtools", (event) => {
-    const wc = event.sender;
+// ipcMain.on("open-devtools", (event) => {
+//     const wc = event.sender;
 
-    if (!wc.isDevToolsOpened()) {
-        wc.openDevTools({ mode: "detach" });
-    }
-});
+//     if (!wc.isDevToolsOpened()) {
+//         wc.openDevTools({ mode: "detach" });
+//     }
+// });
 // // Remove this in production ends
 
 
@@ -33,7 +33,7 @@ function createWindow() {
 
     // // Remove this in production starts
     // // --- Open DevTools automatically ---
-    win.webContents.openDevTools();
+    // win.webContents.openDevTools();
     // // Remove this in production ends
     
     // Define the menu template
@@ -122,9 +122,9 @@ function createWindow() {
 
     // // Remove this in production starts
     // // --- Renderer errors forwarded to terminal ---
-    ipcMain.on('renderer-error', (event, error) => {
-        console.error('Renderer Error:', error);
-    });
+    // ipcMain.on('renderer-error', (event, error) => {
+    //     console.error('Renderer Error:', error);
+    // });
     // // Remove this in production ends
 }
 
@@ -311,9 +311,12 @@ if (!gotLock) {
         const deeplinkUrl = argv.find(arg => arg.startsWith("scraper://"));
         if (deeplinkUrl && win) {
             // 🔥 FORCE DEVTOOLS OPEN FOR DEBUGGING
-            if (!win.webContents.isDevToolsOpened()) {
-                win.webContents.openDevTools({ mode: 'detach' });
-            }
+            // // Remove this in production starts
+            // // --- Open DevTools automatically ---
+            // if (!win.webContents.isDevToolsOpened()) {
+            //     win.webContents.openDevTools({ mode: 'detach' });
+            // }
+            // // Remove this in production ends
 
             win.webContents.send("auth-token-received", deeplinkUrl);
             if (win.isMinimized()) win.restore();

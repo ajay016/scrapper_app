@@ -1,9 +1,15 @@
-try {
-    const { ipcRenderer } = require("electron");
-    ipcRenderer.send("open-devtools");
-} catch (e) {
-    console.warn("DevTools IPC failed:", e);
-}
+// // Remove this in production starts
+// // --- Open DevTools automatically ---
+// try {
+//     const { ipcRenderer } = require("electron");
+//     ipcRenderer.send("open-devtools");
+// } catch (e) {
+//     console.warn("DevTools IPC failed:", e);
+// }
+// // Remove this in production ends
+
+
+
 // scripts/urls.js - CORRECTED VERSION
 console.log('🚀 urls.js is loading...');
 
@@ -51,11 +57,15 @@ console.log('🚀 urls.js is loading...');
     function renderResults(results, baseIndex = 0) {
         if (!results || !results.length) return '';
         return results.map((r, index) => {
+            const displayCount = baseIndex + index + 1;
             const uniqueId = `${baseIndex + index}`;
             const isChecked = selectedItems.has(uniqueId);
             return `
                 <div class="card my-2 p-2">
-                    <div class="form-check">
+                    <div class="form-check d-flex align-items-start">
+                        <span class="text-muted me-5 mt-1" style="min-width: 40px;">
+                            ${displayCount}
+                        </span>
                         <input class="form-check-input result-checkbox" type="checkbox" 
                             data-url="${r.url}" data-text="${r.text || r.url}" 
                             data-id="${uniqueId}" ${isChecked ? 'checked' : ''}>
@@ -305,9 +315,9 @@ console.log('🚀 urls.js is loading...');
                         <input class="form-check-input" type="checkbox" id="mark-all-checkbox">
                         <label class="form-check-label" for="mark-all-checkbox">Отметить все</label>
                     </div>
-                    <button class="btn btn-success btn-sm me-2" id="save-selected-btn">
+                    <!--<button class="btn btn-success btn-sm me-2" id="save-selected-btn">
                         <i class="bi bi-save"></i> Сохранить выбранное
-                    </button>
+                    </button>-->
                     <button class="btn btn-outline-primary btn-sm me-2" id="export-selected-btn">
                         <i class="bi bi-download"></i> Экспортировать выбранное
                     </button>
@@ -498,6 +508,11 @@ console.log('🚀 urls.js is loading...');
             const resultsContainer = document.getElementById('results-content');
             if (!resultsContainer || isPaused) return; // Do nothing if paused
 
+            // Force it to 0 if it's somehow larger than the current results length (safety check)
+            if (window.lastRenderedIndex > allResults.length) {
+                window.lastRenderedIndex = 0;
+            }
+
             const startIndex = window.lastRenderedIndex || 0;
             // Slice everything from where we left off to the current end of allResults
             const batchToRender = allResults.slice(startIndex); 
@@ -612,7 +627,12 @@ console.log('🚀 urls.js is loading...');
         if (!currentSessionId) return;
 
         try {
+            pauseBtn.disabled = true;
+            const originalHTML = pauseBtn.innerHTML; 
+            pauseBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
             const endpoint = isPaused ? 'resume-crawl' : 'pause-crawl';
+
             const response = await fetch(`${API_BASE_URL}/api/${endpoint}/`, {
                 method: 'POST',
                 headers: { 
@@ -665,6 +685,11 @@ console.log('🚀 urls.js is loading...');
             }
         } catch (error) {
             console.error('Error toggling pause/resume:', error);
+            // Revert text if error occurs
+            pauseBtn.innerHTML = originalHTML;
+        } finally {
+            // Always re-enable the button regardless of success or failure
+            pauseBtn.disabled = false;
         }
     }
 
@@ -1340,7 +1365,9 @@ console.log('🚀 urls.js is loading...');
 
             // Reset state
             allResults = [];
-            lastRenderedIndex = 0; // Reset the render pointer
+            lastRenderedIndex = 0; // Reset the unified pointer
+            if (typeof window !== 'undefined') window.lastRenderedIndex = 0; // Kill the ghost just in case
+            renderQueue = []; // Clear the queue if you use one
             selectedItems.clear();
             currentPage = 1;
             isCrawling = true;
@@ -1348,7 +1375,7 @@ console.log('🚀 urls.js is loading...');
 
             // Update UI for crawling state
             searchBtn.disabled = true;
-            searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Ползание...';
+            searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span renderLinkBatch()> Ползание...';
             
             // Add stop button if not exists
             let stopBtn = document.getElementById("stop-crawl-btn");
