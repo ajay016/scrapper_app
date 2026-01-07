@@ -1,15 +1,14 @@
 import os
 from celery import Celery
 
-# Set the default Django settings module for the 'celery' program.
-# Note the double 'p' in scrapper_backend to match your project name
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'scrapper_backend.settings')
+# Use the ONE 'p' spelling to match your folder
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'scraper_backend.settings')
 
-app = Celery('scrapper_backend')
+app = Celery('scraper_backend')
 
-# Using a string here means the worker doesn't have to serialize
-# the configuration object to child processes.
+# Namespace='CELERY' means all celery-related configs 
+# in settings.py must start with CELERY_
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
-# Load task modules from all registered Django app configs.
+# Look for task.py files in your 'api' and 'parser' apps
 app.autodiscover_tasks()
