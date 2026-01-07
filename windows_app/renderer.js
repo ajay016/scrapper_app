@@ -252,12 +252,12 @@ async function refreshToken() {
 
 // Remove this in production starts
 // Forward renderer errors to main process
-// window.addEventListener('error', (event) => {
-//     ipcRenderer.send('renderer-error', `${event.message} at ${event.filename}:${event.lineno}`);
-// });
+window.addEventListener('error', (event) => {
+    ipcRenderer.send('renderer-error', `${event.message} at ${event.filename}:${event.lineno}`);
+});
 
-// window.addEventListener('unhandledrejection', (event) => {
-//     ipcRenderer.send('renderer-error', `Unhandled Promise Rejection: ${event.reason}`);
-// });
+window.addEventListener('unhandledrejection', (event) => {
+    ipcRenderer.send('renderer-error', `Unhandled Promise Rejection: ${event.reason}`);
+});
 // Forward renderer errors to main process ends
 // Remove this in production ends

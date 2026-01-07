@@ -1,11 +1,11 @@
 // // Remove this in production starts
 // // --- Open DevTools automatically ---
-// try {
-//     const { ipcRenderer } = require("electron");
-//     ipcRenderer.send("open-devtools");
-// } catch (e) {
-//     console.warn("DevTools IPC failed:", e);
-// }
+try {
+    const { ipcRenderer } = require("electron");
+    ipcRenderer.send("open-devtools");
+} catch (e) {
+    console.warn("DevTools IPC failed:", e);
+}
 // // Remove this in production ends
 
 
