@@ -14,7 +14,7 @@ from django.core.exceptions import MultipleObjectsReturned
 from django.db import transaction
 from django.db.utils import IntegrityError
 from bs4 import BeautifulSoup
-
+from django.conf import settings
 import traceback
 import logging
 import json
@@ -42,6 +42,7 @@ from selenium.webdriver.chrome.options import Options
 import threading
 from collections import deque
 import uuid
+import redis
 import logging
 from .utils.search_engine_scrappers import(
     scrape_bing_results,
@@ -933,40 +934,45 @@ class FastURLCrawler:
         self.session_id = session_id
         self.base_url = base_url
         self.max_depth = max_depth
+        
+        # 1. Setup Redis
+        redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0')
+        self.r = redis.from_url(redis_url, decode_responses=True)
+        
+        # 2. State & Safety
         self.visited_urls = set()
-        self.found_links = []
-        self.driver = None
         self.is_running = True
         self.base_domain = urlparse(base_url).netloc
         self.use_selenium = use_selenium
         self.filters = filters or {}
-        self.max_workers = max_workers  # Parallel processing
+        self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        self.driver = None
+        self.url_lock = threading.Lock()
         
-        self._pause_event = threading.Event()
-        self._pause_event.set()
+        self.found_links = []           # Missing!
+        self.all_unique_urls = set()    # Missing!
+        self._pause_event = threading.Event() # Missing! Used in stop()
+        self._pause_event.set()         # Initialize as "not paused"
         
-        # Optimized session with connection pooling
+        # 3. Networking
         self.session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=2)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=50)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
         
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-        })
-        
-        self.all_unique_urls = set()
-        self.url_lock = threading.Lock()  # Thread safety
-        
+        # 4. Queue and Timing
         self.queue = deque([(self.base_url, 0)])
-        
-        # Rate limiting
         self.last_request_time = 0
-        self.min_request_interval = 0.05  # 50ms between requests
+        self.min_request_interval = 0.05
+        
+        # 5. INITIALIZE REDIS KEYS (This replaces crawler_sessions)
+        self.r.set(f"crawler:status:{self.session_id}", "running", ex=86400)
+        self.r.set(f"crawler:stats:{self.session_id}", json.dumps({
+            'total_found': 0, 'pages_crawled': 0, 'errors': 0, 
+            'filtered_links': 0, 'beautifulsoup_success': 0, 'selenium_fallback': 0,
+            'duplicates_skipped': 0, 'parallel_workers': self.max_workers
+        }), ex=86400)
         
     def rate_limit(self):
         """Respectful rate limiting"""
@@ -1048,20 +1054,25 @@ class FastURLCrawler:
     
     
     def check_pause(self):
-        """Blocks the thread if _pause_event is cleared"""
-        self._pause_event.wait()
+        """Polls Redis to see if we should wait or stop"""
+        while True:
+            status = self.r.get(f"crawler:status:{self.session_id}")
+            if status == "stopped":
+                self.is_running = False
+                return False
+            if status == "paused":
+                time.sleep(1)
+                continue
+            return True
 
-    def pause(self):
-        """Clears the event, causing wait() to block"""
-        self._pause_event.clear()
-        if self.session_id in crawler_sessions:
-            crawler_sessions[self.session_id]['status'] = 'paused'
-
-    def resume(self):
-        """Sets the event, allowing wait() to proceed"""
-        self._pause_event.set()
-        if self.session_id in crawler_sessions:
-            crawler_sessions[self.session_id]['status'] = 'running'
+    def update_redis_stats(self, key_name, increment=1):
+        """Helper to update stats inside Redis JSON string"""
+        with self.url_lock:
+            stats_raw = self.r.get(f"crawler:stats:{self.session_id}")
+            stats = json.loads(stats_raw) if stats_raw else {}
+            stats[key_name] = stats.get(key_name, 0) + increment
+            self.r.set(f"crawler:stats:{self.session_id}", json.dumps(stats))
+            return stats
             
     def crawl(self):
         """Optimized crawling with parallel processing"""
@@ -1105,7 +1116,7 @@ class FastURLCrawler:
                 while self.queue and len(current_batch) < batch_size:
                     url, depth = self.queue.popleft() # Use self.queue
                     
-                    if url not in self.visited_urls and depth <= self.max_depth:
+                    if url not in self.visited_urls and depth < self.max_depth: # Use < instead of <=
                         current_batch.append((url, depth))
                 
                 if not current_batch:
@@ -1116,7 +1127,7 @@ class FastURLCrawler:
                 
                 # Add new links to queue
                 for link in new_links:
-                    if link['url'] not in self.visited_urls and link.get('depth', 0) <= self.max_depth:
+                    if link['url'] not in self.visited_urls and link.get('depth', 0) < self.max_depth:
                         if self.should_follow_link(link):
                             self.queue.append((link['url'], link.get('depth', 0)))
                         else:
@@ -1362,6 +1373,7 @@ class FastURLCrawler:
             try:
                 chrome_options = Options()
                 chrome_options.add_argument("--headless")
+                chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
                 chrome_options.add_argument("--no-sandbox")
                 chrome_options.add_argument("--disable-dev-shm-usage")
                 chrome_options.add_argument("--disable-gpu")
@@ -1376,14 +1388,9 @@ class FastURLCrawler:
         return self.driver
                 
     def add_result(self, result):
-        # Allow 'complete' or 'error' messages through even if is_running is False
-        # This ensures the UI gets the final status update.
-        if not self.is_running and result.get('type') not in ['complete', 'error']:
-            return 
-            
-        if self.session_id in crawler_sessions:
-            with self.url_lock:
-                crawler_sessions[self.session_id]['results'].append(result)
+        """Push result to Redis List for the UI to pop"""
+        if self.session_id:
+            self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(result))
     
     def close_driver(self):
         """Close Selenium driver"""
@@ -1397,40 +1404,41 @@ class FastURLCrawler:
     def stop(self):
         # 1. Prevent redundant calls
         if not hasattr(self, 'is_running') or not self.is_running:
-            # Check if we still need to set the status to completed
-            if self.session_id in crawler_sessions and crawler_sessions[self.session_id]['status'] == 'running':
-                crawler_sessions[self.session_id]['status'] = 'completed'
             return
         
         # 2. EMERGENCY BRAKE: Set this FIRST.
         self.is_running = False 
-        self._pause_event.set() # Release anyone waiting on pause
+        if hasattr(self, '_pause_event'):
+            self._pause_event.set() 
         
-        # 3. Shutdown executor and CANCEL pending tasks
+        # 3. Update Redis Status so Frontend knows we are done
+        # This is the line that fixes your Stop button issue
+        self.r.set(f"crawler:status:{self.session_id}", "completed")
+        
+        # 4. Shutdown executor
         if hasattr(self, 'executor'):
             try:
                 self.executor.shutdown(wait=False, cancel_futures=True)
-            except (TypeError, RuntimeError):
-                self.executor.shutdown(wait=False)
+            except:
+                pass
                 
-        # 4. Kill Selenium immediately
+        # 5. Kill Selenium
         self.close_driver() 
         
-        # 5. Update session status
+        # 6. Final Session Cleanup
         if self.session_id in crawler_sessions:
-            current_status = crawler_sessions[self.session_id].get('status')
-            if current_status not in ['stopped', 'paused']:
-                crawler_sessions[self.session_id]['status'] = 'completed'
-
-            stats = crawler_sessions[self.session_id]['stats']
+            stats = crawler_sessions[self.session_id].get('stats', {})
             
-            # 6. Send Final Stats (This works now because we fixed add_result)
+            # Send the final "complete" message to the results list
             self.add_result({
                 'type': 'complete',
-                'message': f'🎉 Crawl finished. Visited {stats["pages_crawled"]} pages.',
-                'total_links': stats['total_found'],
-                'total_pages': stats['pages_crawled']
+                'message': f'🎉 Crawl finished. Visited {stats.get("pages_crawled", 0)} pages.',
+                'total_links': stats.get('total_found', 0),
+                'total_pages': stats.get('pages_crawled', 0)
             })
+            
+            # Mark the in-memory session as completed
+            crawler_sessions[self.session_id]['status'] = 'completed'
             
             
 # Session cleanup function
@@ -1459,243 +1467,139 @@ def cleanup_old_sessions():
         crawler_sessions.pop(session_id, None)
 
 # Update your start_url_crawl function to use FastURLCrawler
-@require_http_methods(["POST"])
 @csrf_exempt
+@require_http_methods(["POST"])
 def start_url_crawl(request):
-    """Start a new optimized URL crawling session"""
-    try:
-        cleanup_old_sessions()
-        
-        data = json.loads(request.body)
-        url = data.get('url', '').strip()
-        max_depth = int(data.get('max_depth', 2))
-        use_selenium = data.get('use_selenium', False)
-        max_workers = int(data.get('max_workers', 5))  # New parameter
-        
-        # --- ADD THIS: Prevent "Phantom Crawlers" ---
-        for old_id, session in list(crawler_sessions.items()):
-            if session['crawler'] and session['crawler'].base_url == url:
-                logger.info(f"Stopping existing crawler for {url} before starting new one")
-                session['crawler'].stop()
-                del crawler_sessions[old_id]
-        
-        filters = data.get('filters', {})
-        
-        if not url:
-            return JsonResponse({'error': 'URL is required'}, status=400)
-            
-        try:
-            parsed = urlparse(url)
-            if not parsed.scheme or not parsed.netloc:
-                return JsonResponse({'error': 'Invalid URL format'}, status=400)
-        except:
-            return JsonResponse({'error': 'Invalid URL format'}, status=400)
-            
-        session_id = str(uuid.uuid4())
-        
-        crawler_sessions[session_id] = {
-            'crawler': None,
-            'results': [],
-            'started_at': time.time(),
-            'last_polled': time.time(),
-            'status': 'starting',
-            'filters': filters,
-            'stats': {
-                'total_found': 0,
-                'pages_crawled': 0,
-                'beautifulsoup_success': 0,
-                'selenium_fallback': 0,
-                'errors': 0,
-                'duplicates_skipped': 0,
-                'filtered_links': 0,
-                'parallel_workers': max_workers
-            }
-        }
-        
-        # Use FastURLCrawler instead of URLCrawler
-        crawler = FastURLCrawler(session_id, url, max_depth, use_selenium, filters, max_workers)
-        crawler_sessions[session_id]['crawler'] = crawler
-        crawler_sessions[session_id]['status'] = 'running'
-        
-        thread = threading.Thread(target=crawler.crawl)
-        thread.daemon = True
-        thread.start()
-        
-        logger.info(f"Started FAST crawling session {session_id} for URL: {url}")
-        
-        return JsonResponse({
-            'success': True,
-            'session_id': session_id,
-            'message': 'Fast crawling started with parallel processing',
-            'max_depth': max_depth,
-            'max_workers': max_workers,
-            'filters_applied': bool(filters)
-        })
-        
-    except Exception as e:
-        logger.error(f"Failed to start fast crawling: {e}")
-        return JsonResponse({'error': f'Failed to start crawling: {str(e)}'}, status=500)
+    data = json.loads(request.body)
+    session_id = str(uuid.uuid4())
     
+    crawler = FastURLCrawler(
+        session_id=session_id,
+        base_url=data.get('url'),
+        max_depth=int(data.get('max_depth', 2)),
+        use_selenium=data.get('use_selenium', False),
+        filters=data.get('filters', {}),
+        max_workers=int(data.get('max_workers', 5))
+    )
     
+    crawler.r.set(f"crawler:start_time:{session_id}", time.time(), ex=86400)
+    
+    thread = threading.Thread(target=crawler.crawl)
+    thread.daemon = True
+    thread.start()
+    
+    return JsonResponse({'success': True, 'session_id': session_id})
+
 @csrf_exempt
-@require_http_methods(["POST"])
 def pause_url_crawl(request):
-    try:
-        data = json.loads(request.body)
-        session_id = data.get('session_id')
-        
-        print('Pausing session: ', session_id)
-        
-        if session_id in crawler_sessions:
-            crawler = crawler_sessions[session_id].get('crawler')
-            if crawler:
-                crawler.pause()
-                return JsonResponse({'status': 'paused'})
-        
-        return JsonResponse({'error': 'Session not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+    data = json.loads(request.body)
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    r.set(f"crawler:status:{data.get('session_id')}", "paused")
+    return JsonResponse({'status': 'paused'})
 
 @csrf_exempt
-@require_http_methods(["POST"])
 def resume_url_crawl(request):
-    try:
-        data = json.loads(request.body)
-        session_id = data.get('session_id')
-        
-        print('Resuming session: ', session_id)
-        
-        if session_id in crawler_sessions:
-            session_data = crawler_sessions[session_id]
-            crawler = session_data.get('crawler')
-            
-            if session_data.get('status') == 'stopped':
-             return JsonResponse({'error': 'Cannot resume a stopped crawl. Please start a new session.'}, status=400)
-         
-            if crawler:
-                crawler.resume()
-                
-                # 2. Safety Check: If the thread actually died, restart it
-                # (This happens if 'stop' was called instead of 'pause')
-                if not crawler.is_running:
-                    crawler.is_running = True
-                    thread = threading.Thread(target=crawler.crawl)
-                    thread.daemon = True
-                    thread.start()
-
-                return JsonResponse({'status': 'resumed'})
-        
-        return JsonResponse({'error': 'Session not found'}, status=404)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
-
+    data = json.loads(request.body)
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    r.set(f"crawler:status:{data.get('session_id')}", "running")
+    return JsonResponse({'status': 'resumed'})
 
 @require_http_methods(["GET"])
 def get_crawl_results(request):
-    """Get real-time crawling results for a session"""
-    # Clean up old sessions first
-    cleanup_old_sessions()
-    
     session_id = request.GET.get('session_id')
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
     
-    if not session_id:
-        return JsonResponse({'error': 'Session ID is required'}, status=400)
-        
-    if session_id not in crawler_sessions:
-        return JsonResponse({'error': 'Invalid session ID or session expired'}, status=404)
-        
-    session = crawler_sessions[session_id]
-    session['last_polled'] = time.time()
+    # 1. Pop all results currently in the Redis list (Real-time streaming)
+    results = []
+    while r.llen(f"crawler:results:{session_id}") > 0:
+        res = r.lpop(f"crawler:results:{session_id}")
+        if res:
+            results.append(json.loads(res))
     
-    # Get new results and clear them from session
-    results = session['results'].copy()
-    session['results'] = []
+    # 2. Get status and stats (keeping your exact frontend keys)
+    status = r.get(f"crawler:status:{session_id}") or "unknown"
+    stats_raw = r.get(f"crawler:stats:{session_id}")
+    stats = json.loads(stats_raw) if stats_raw else {}
     
     return JsonResponse({
         'results': results,
-        'status': session['status'],
-        'stats': session['stats'],
+        'status': status,
+        'stats': stats,
         'total_results': len(results)
     })
 
 @require_http_methods(["GET"])
 def get_crawl_status(request):
-    """Get current crawling status"""
-    
-    # Step 1: Clean up old sessions
-    cleanup_old_sessions()
-    
-    # Step 2: Get session ID from query parameters
     session_id = request.GET.get('session_id')
-    
     if not session_id:
         return JsonResponse({'error': 'Session ID is required'}, status=400)
     
-    # Step 3: Validate if session exists
-    if session_id not in crawler_sessions:
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    
+    # Get Data from Redis
+    status = r.get(f"crawler:status:{session_id}")
+    stats_raw = r.get(f"crawler:stats:{session_id}")
+    start_time = r.get(f"crawler:start_time:{session_id}")
+
+    if not status:
         return JsonResponse({'error': 'Invalid session ID or session expired'}, status=404)
-    
-    # Step 4: Get the session info
-    session = crawler_sessions[session_id]
-    
-    # Step 5: Prepare and return the response
+
+    stats = json.loads(stats_raw) if stats_raw else {}
+    running_time = round(time.time() - float(start_time), 2) if start_time else 0
+
     return JsonResponse({
-        'status': session.get('status', 'unknown'),
-        'stats': session.get('stats', {}),
-        'running_time': round(time.time() - session.get('started_at', time.time()), 2),
+        'status': status,
+        'stats': stats,
+        'running_time': running_time,
         'session_exists': True
     })
 
 @require_http_methods(["POST"])
 @csrf_exempt
 def stop_crawl(request):
-    """Stop a crawling session with correct state management"""
     try:
         data = json.loads(request.body)
         session_id = data.get('session_id')
         
-        # 1. Keep your original explicit validation
         if not session_id:
             return JsonResponse({'error': 'Session ID is required'}, status=400)
             
-        if session_id in crawler_sessions:
-            session = crawler_sessions[session_id]
-            
-            # 2. CHANGE: Set status to 'stopped' BEFORE calling crawler.stop()
-            # This ensures the crawler's internal logic doesn't overwrite this with 'completed'
-            session['status'] = 'stopped'
-            
-            if session['crawler']:
-                session['crawler'].stop()
-            
-            # 3. Keep your original logging
-            logger.info(f"Stopped crawling session {session_id}")
-            
-            return JsonResponse({'success': True, 'message': 'Crawling stopped'})
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
         
-        return JsonResponse({'error': 'Invalid session ID'}, status=404)
+        # We set the status to 'stopped'. 
+        # The crawler's check_pause() loop will see this and kill the thread.
+        r.set(f"crawler:status:{session_id}", "stopped")
+        
+        logger.info(f"Sent stop signal to session {session_id}")
+        return JsonResponse({'success': True, 'message': 'Crawling stopped'})
         
     except Exception as e:
-        # 4. Keep your original error logging
         logger.error(f"Failed to stop crawling: {e}")
         return JsonResponse({'error': f'Failed to stop crawling: {str(e)}'}, status=500)
 
 @require_http_methods(["GET"])
 def list_sessions(request):
-    """List all active sessions (for debugging)"""
-    cleanup_old_sessions()
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    
+    # Find all keys that represent a status
+    status_keys = r.keys("crawler:status:*")
     
     sessions_info = {}
-    for session_id, session_data in crawler_sessions.items():
+    for key in status_keys:
+        session_id = key.split(":")[-1]
+        status = r.get(key)
+        stats_raw = r.get(f"crawler:stats:{session_id}")
+        start_time = r.get(f"crawler:start_time:{session_id}")
+        
         sessions_info[session_id] = {
-            'status': session_data['status'],
-            'started_at': session_data['started_at'],
-            'stats': session_data['stats'],
-            'running_time': time.time() - session_data['started_at']
+            'status': status,
+            'started_at': float(start_time) if start_time else 0,
+            'stats': json.loads(stats_raw) if stats_raw else {},
+            'running_time': round(time.time() - float(start_time), 2) if start_time else 0
         }
     
     return JsonResponse({
-        'active_sessions': len(crawler_sessions),
+        'active_sessions': len(sessions_info),
         'sessions': sessions_info
     })
 

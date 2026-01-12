@@ -1,0 +1,55 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: scraper_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  web:
+    build: .
+    container_name: scraper_web
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - pw_sessions:/app/playwright_sessions
+      - /dev/shm:/dev/shm
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    # Ensure manage.py is in the root of scraper_backend
+    command: python manage.py runserver 0.0.0.0:8000
+
+  worker:
+    build: .
+    container_name: scraper_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - pw_sessions:/app/playwright_sessions
+      - /dev/shm:/dev/shm
+    depends_on:
+      - redis
+    # CHANGED: -A razer_project -> -A scraper_backend
+    command: ["xvfb-run", "-a", "-s", "-screen 0 1280x1024x24", "celery", "-A", "scraper_backend", "worker", "-l", "info", "--concurrency=4"]
+
+  beat:
+    build: .
+    container_name: scraper_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+    # CHANGED: -A razer_project -> -A scraper_backend
+    command: ["celery", "-A", "scraper_backend", "beat", "-l", "info"]
+
+volumes:
+  pw_sessions:
