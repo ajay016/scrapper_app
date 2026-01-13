@@ -311,6 +311,8 @@ def bulk_keywords_search_stream(request):
     keywords_file = request.FILES.get('keywords_file')
     used_engine = request.GET.get("engine", "duckduckgo").lower()  # default DuckDuckGo
     
+    print(f"🚀 Starting bulk search using engine: {used_engine}")
+    
     filters = {
         "url_include": request.POST.get("url_include", ""),
         "url_exclude": request.POST.get("url_exclude", ""),
@@ -418,7 +420,7 @@ def bulk_keywords_search_stream(request):
     response["X-Accel-Buffering"] = "no"
     return response
 
-
+@api_view(['POST'])
 @csrf_exempt
 def stop_bulk_search(request):
     """

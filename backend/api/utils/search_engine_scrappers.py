@@ -47,7 +47,14 @@ def scrape_bing_results(query, num_results=None):
     collected = set()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(
+            headless=False,
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage"  # This prevents the "Target Closed" error
+            ]
+        )
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
@@ -157,7 +164,14 @@ def scrape_duckduckgo_results(query, num_results=None, stop_flag=None):
     import time
 
     p = sync_playwright().start()
-    browser = p.chromium.launch(headless=False)
+    browser = p.chromium.launch(
+        headless=False,
+        args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage"  # This prevents the "Target Closed" error
+        ]
+    )
     context = browser.new_context(
         viewport={"width": 1280, "height": 800},
         user_agent=(
