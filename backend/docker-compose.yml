@@ -10,6 +10,8 @@ services:
     build: .
     container_name: scraper_web
     restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - .:/app
       - pw_sessions:/app/playwright_sessions
@@ -18,7 +20,8 @@ services:
       - "8000:8000"
     depends_on:
       - redis
-    # THIS IS THE CRITICAL PART:
+    # Ensure manage.py is in the root of scraper_backend
+    # command: python manage.py runserver 0.0.0.0:8000
     command: sh -c "rm -f /tmp/.X*-lock && xvfb-run -a python manage.py runserver 0.0.0.0:8000"
 
   worker:
@@ -34,8 +37,7 @@ services:
     depends_on:
       - redis
     # CHANGED: -A razer_project -> -A scraper_backend
-    # command: ["xvfb-run", "-a", "-s", "-screen 0 1280x1024x24", "celery", "-A", "scraper_backend", "worker", "-l", "info", "--concurrency=4"]
-    command: ["xvfb-run", "-a", "celery", "-A", "scraper_backend", "worker", "-l", "info", "--concurrency=4"]
+    command: ["xvfb-run", "-a", "-s", "-screen 0 1280x720x24", "celery", "-A", "scraper_backend", "worker", "-l", "info", "--concurrency=4"]
 
   beat:
     build: .
