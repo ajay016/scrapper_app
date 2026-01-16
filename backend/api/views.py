@@ -48,6 +48,7 @@ from .utils.search_engine_scrappers import(
     scrape_bing_results,
     scrape_duckduckgo_results
 )
+from .utils.thread_generator import ThreadedGenerator
 
 
 
@@ -170,13 +171,18 @@ def search_and_parse_stream(request):
     def event_stream():
         yield f"event: meta\ndata: {json.dumps({'keyword': keyword_serialized})}\n\n"
         try:
-            generator = (
-                scrape_bing_results(keyword_stripped, num_results=limit)
-                if engine == "bing"
-                else scrape_duckduckgo_results(keyword_stripped, num_results=limit, stop_flag=GLOBAL_STOP_FLAG)
-            )
+            if engine == "bing":
+                generator = ThreadedGenerator(scrape_bing_results, keyword_stripped, num_results=limit)
+            else:
+                generator = ThreadedGenerator(
+                    scrape_duckduckgo_results, 
+                    keyword_stripped, 
+                    num_results=limit, 
+                    stop_flag=GLOBAL_STOP_FLAG
+                )
 
             idx = 0
+            
             filtered_count = 0
 
             for href in generator:
@@ -363,10 +369,20 @@ def bulk_keywords_search_stream(request):
 
             for engine_name in engines_to_try:
                 try:
+                    # UPDATED CODE: Use ThreadedGenerator here too
                     if engine_name == "duckduckgo":
-                        generator = scrape_duckduckgo_results(keyword_stripped, num_results, stop_flag=BULK_SEARCH_STOP_FLAG)
+                        generator = ThreadedGenerator(
+                            scrape_duckduckgo_results, 
+                            keyword_stripped, 
+                            num_results, 
+                            stop_flag=BULK_SEARCH_STOP_FLAG
+                        )
                     else:
-                        generator = scrape_bing_results(keyword_stripped, num_results)
+                        generator = ThreadedGenerator(
+                            scrape_bing_results, 
+                            keyword_stripped, 
+                            num_results
+                        )
 
                     generated_any = False
                     

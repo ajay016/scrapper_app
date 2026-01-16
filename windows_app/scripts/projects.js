@@ -155,7 +155,11 @@
             return;
         }
 
-        if (!confirm(`All the keywords/folders inside the projects will be deleted. Are you sure you want to delete ${selectedIds.length} project(s)?`)) {
+        // if (!confirm(`All the keywords/folders inside the projects will be deleted. Are you sure you want to delete ${selectedIds.length} project(s)?`)) {
+        //     return;
+        // }
+
+        if (!confirm(`Все ключевые слова и папки внутри проектов будут удалены. Вы уверены, что хотите удалить ${selectedIds.length} проект(а/ов)?`)) {
             return;
         }
 
