@@ -1313,7 +1313,7 @@ class FastURLCrawler:
             return []
     
     def fast_extract_links(self, soup, base_url):
-        """Optimized link extraction"""
+        """Optimized link extraction that CAPTURES contacts but flags them"""
         links = []
         base_domain = self.base_domain
         seen_urls = set()
@@ -1321,32 +1321,42 @@ class FastURLCrawler:
         for a_tag in soup.find_all('a', href=True):
             try:
                 href = a_tag['href'].strip()
-                if not href or href.startswith(('javascript:', 'mailto:', 'tel:', '#')):
+                
+                # 1. ONLY filter out crash-prone javascript or empty links
+                # We KEEP 'mailto:' and 'tel:' now.
+                if not href or href.startswith(('javascript:', '#')):
                     continue
                 
                 full_url = urljoin(base_url, href)
                 parsed_url = urlparse(full_url)
                 
+                # 2. Check protocol
+                scheme = parsed_url.scheme.lower()
+                is_http = scheme in ['http', 'https']
+                is_contact = scheme in ['mailto', 'tel']
+
                 # Quick normalization
-                normalized_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-                if parsed_url.query:
-                    normalized_url += f"?{parsed_url.query}"
-                
-                if normalized_url in seen_urls:
-                    continue
+                if is_http:
+                    normalized_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                    if parsed_url.query: normalized_url += f"?{parsed_url.query}"
+                else:
+                    # Keep mailto/tel exactly as is
+                    normalized_url = full_url
+
+                if normalized_url in seen_urls: continue
                 seen_urls.add(normalized_url)
                 
                 is_internal = parsed_url.netloc == base_domain
                 
-                link_text = a_tag.get_text(strip=True)[:150]
-                if not link_text:
-                    link_text = a_tag.get('title', '')[:150] or ''
+                link_text = a_tag.get_text(strip=True)[:150] or a_tag.get('title', '')[:150]
                 
                 links.append({
                     'url': normalized_url,
                     'text': link_text,
                     'is_internal': is_internal,
-                    'is_external': not is_internal,
+                    'is_external': not is_internal and is_http,
+                    'is_contact': is_contact,    # <--- NEW FLAG
+                    'crawlable': is_http,        # <--- KEY SAFETY FLAG
                     'source_url': base_url,
                     'domain': parsed_url.netloc
                 })
