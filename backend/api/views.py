@@ -945,10 +945,11 @@ def upload_keywords(request):
 
 
 # In-memory storage for real-time updates
+# Global in-memory session tracker (for thread management)
 crawler_sessions = {}
 
 class FastURLCrawler:
-    def __init__(self, session_id, base_url, max_depth=2, use_selenium=False, filters=None, max_workers=5):
+    def __init__(self, session_id, base_url, max_depth=2, filters=None, max_workers=5):
         self.session_id = session_id
         self.base_url = base_url
         self.max_depth = max_depth
@@ -961,31 +962,40 @@ class FastURLCrawler:
         self.visited_urls = set()
         self.is_running = True
         self.base_domain = urlparse(base_url).netloc
-        self.use_selenium = use_selenium
         self.filters = filters or {}
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
-        self.driver = None
         self.url_lock = threading.Lock()
         
-        self.found_links = []           # Missing!
-        self.all_unique_urls = set()    # Missing!
-        self._pause_event = threading.Event() # Missing! Used in stop()
-        self._pause_event.set()         # Initialize as "not paused"
+        self.found_links = []
+        self.all_unique_urls = set()
+        self._pause_event = threading.Event()
+        self._pause_event.set() # Initialize as "not paused"
         
-        # 3. Networking
+        # 3. Networking (Optimized for Pure BS4)
         self.session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=50)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=max_workers, pool_maxsize=max_workers*2)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
+        
+        # Add User-Agent to mimic a browser (Crucial since we removed Selenium)
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
         
         # 4. Queue and Timing
         self.queue = deque([(self.base_url, 0)])
         self.last_request_time = 0
         self.min_request_interval = 0.05
         
-        # 5. INITIALIZE REDIS KEYS (This replaces crawler_sessions)
+        # 5. INITIALIZE REDIS KEYS
         self.r.set(f"crawler:status:{self.session_id}", "running", ex=86400)
+        # We keep 'selenium_fallback' in the stats to ensure frontend compatibility, 
+        # even though it will stay 0.
         self.r.set(f"crawler:stats:{self.session_id}", json.dumps({
             'total_found': 0, 'pages_crawled': 0, 'errors': 0, 
             'filtered_links': 0, 'beautifulsoup_success': 0, 'selenium_fallback': 0,
@@ -1001,14 +1011,16 @@ class FastURLCrawler:
         self.last_request_time = time.time()
     
     def should_follow_link(self, link):
-        """Air-tight filter checking"""
+        """Air-tight filter checking with robust key handling"""
         if not self.filters:
             return link.get('is_internal', False)
             
         try:
             url = link.get('url', '')
             is_internal = link.get('is_internal', False)
-            case_sensitive = self.filters.get('caseSensitive', False)
+            
+            # Handle 'caseSensitive' (JS style) or 'case_sensitive' (Python style)
+            case_sensitive = self.filters.get('caseSensitive') or self.filters.get('case_sensitive') or False
             
             # 1. ALWAYS block external links first
             if not is_internal:
@@ -1018,35 +1030,50 @@ class FastURLCrawler:
             check_url = url if case_sensitive else url.lower()
 
             # 2. URL CONTAINS (Whitelist/Requirement)
-            url_contains_raw = self.filters.get('urlContains', '')
+            # Check both key styles to prevent filter bypassing
+            url_contains_raw = self.filters.get('urlContains') or self.filters.get('url_contains')
+            
             if url_contains_raw:
-                # Clean the list: split by comma, strip whitespace, remove empty strings
-                keywords = [k.strip() for k in url_contains_raw.split(',') if k.strip()]
-                
+                # Ensure we handle list inputs or comma-separated strings
+                if isinstance(url_contains_raw, list):
+                    keywords = [str(k).strip() for k in url_contains_raw if str(k).strip()]
+                else:
+                    keywords = [k.strip() for k in str(url_contains_raw).split(',') if k.strip()]
+
                 if keywords:
-                    # If keywords exist, URL MUST match at least one
                     match_found = any(
                         (k if case_sensitive else k.lower()) in check_url 
                         for k in keywords
                     )
+                    # STRICT BLOCK: If keywords were provided but URL doesn't match, return False
                     if not match_found:
                         return False
 
             # 3. URL EXCLUDES (Blacklist)
-            url_excludes_raw = self.filters.get('urlExcludes', '')
+            url_excludes_raw = self.filters.get('urlExcludes') or self.filters.get('url_excludes')
+            
             if url_excludes_raw:
-                excludes = [ex.strip() for ex in url_excludes_raw.split(',') if ex.strip()]
+                if isinstance(url_excludes_raw, list):
+                    excludes = [str(ex).strip() for ex in url_excludes_raw if str(ex).strip()]
+                else:
+                    excludes = [ex.strip() for ex in str(url_excludes_raw).split(',') if ex.strip()]
+                
                 for exclude in excludes:
                     check_exclude = exclude if case_sensitive else exclude.lower()
                     if check_exclude in check_url:
                         return False
 
             # 4. TEXT CONTAINS (Whitelist)
-            text_contains_raw = self.filters.get('textContains', '')
+            text_contains_raw = self.filters.get('textContains') or self.filters.get('text_contains')
+            
             if text_contains_raw:
                 text = link.get('text', '')
                 check_text = text if case_sensitive else text.lower()
-                text_keywords = [tk.strip() for tk in text_contains_raw.split(',') if tk.strip()]
+                
+                if isinstance(text_contains_raw, list):
+                    text_keywords = [str(tk).strip() for tk in text_contains_raw if str(tk).strip()]
+                else:
+                    text_keywords = [tk.strip() for tk in str(text_contains_raw).split(',') if tk.strip()]
                 
                 if text_keywords:
                     text_match = any(
@@ -1056,20 +1083,12 @@ class FastURLCrawler:
                     if not text_match:
                         return False
 
-            # 5. DOMAIN FILTER
-            domain_filter_raw = self.filters.get('domain', '')
-            if domain_filter_raw:
-                link_domain = urlparse(url).netloc
-                domain_list = [d.strip().lower() for d in domain_filter_raw.split(',') if d.strip()]
-                if not any(d in link_domain.lower() for d in domain_list):
-                    return False
-
             return True # Passed all checks
             
         except Exception as e:
-            logger.error(f"Filter Error: {e}")
+            # If an error occurs in the filter logic, we block the link to be safe
+            logger.error(f"Filter Error on {link.get('url')}: {e}")
             return False
-    
     
     def check_pause(self):
         """Polls Redis to see if we should wait or stop"""
@@ -1094,9 +1113,8 @@ class FastURLCrawler:
             
     def crawl(self):
         """Optimized crawling with parallel processing"""
-        # If the executor was previously shut down, we must recreate it
         try:
-            # Test if executor is alive
+            # Re-initialize executor if needed
             self.executor.submit(lambda: None)
         except (RuntimeError, AttributeError):
             logger.info("Re-initializing executor for session")
@@ -1111,30 +1129,25 @@ class FastURLCrawler:
                     'status': 'running',
                     'filters': self.filters,
                     'stats': {
-                        'total_found': 0,
-                        'pages_crawled': 0,
-                        'beautifulsoup_success': 0,
-                        'selenium_fallback': 0,
-                        'errors': 0,
-                        'duplicates_skipped': 0,
-                        'filtered_links': 0,
-                        'parallel_workers': self.max_workers
+                        'total_found': 0, 'pages_crawled': 0, 'beautifulsoup_success': 0,
+                        'selenium_fallback': 0, 'errors': 0, 'duplicates_skipped': 0,
+                        'filtered_links': 0, 'parallel_workers': self.max_workers
                     }
                 }
             
-            # queue = deque([(self.base_url, 0)])
-            batch_size = 10  # Process URLs in batches
+            batch_size = 10 
             
             while self.queue and self.is_running:
                 self.check_pause()
                 
                 if not self.is_running: break
+                
                 # Take a batch of URLs to process in parallel
                 current_batch = []
                 while self.queue and len(current_batch) < batch_size:
-                    url, depth = self.queue.popleft() # Use self.queue
+                    url, depth = self.queue.popleft()
                     
-                    if url not in self.visited_urls and depth < self.max_depth: # Use < instead of <=
+                    if url not in self.visited_urls and depth < self.max_depth:
                         current_batch.append((url, depth))
                 
                 if not current_batch:
@@ -1164,8 +1177,6 @@ class FastURLCrawler:
                     })
                             
         except Exception as e:
-            # ONLY log and send error to UI if the crawler was actually supposed to be running.
-            # If self.is_running is False, it means we are shutting down, so we ignore the error.
             if self.is_running: 
                 logger.error(f"Crawling error: {e}")
                 self.add_result({
@@ -1173,21 +1184,17 @@ class FastURLCrawler:
                     'message': f'Crawling error: {str(e)}'
                 })
         finally:
-            # This calls the stop() method which now handles all the cleanup
-            # including closing the driver and shutting down the executor.
             self.stop()
     
     def process_batch_parallel(self, url_batch):
         """Process a batch of URLs using the persistent executor"""
         all_new_links = []
         
-        # 1. Mark them as visited IMMEDIATELY before starting the threads
+        # Mark visited immediately
         with self.url_lock:
             for url, depth in url_batch:
                 self.visited_urls.add(url)
         
-        # CHANGE 2: Removed the 'with ThreadPoolExecutor' block. 
-        # We use the persistent self.executor instead to avoid recreation errors.
         try:
             future_to_url = {
                 self.executor.submit(self.process_single_page, url, depth): (url, depth) 
@@ -1195,49 +1202,41 @@ class FastURLCrawler:
             }
             
             for future in as_completed(future_to_url):
-                # If the crawler was stopped while these threads were working, ignore the results
                 if not self.is_running:
                     break
                 
                 url, depth = future_to_url[future]
                 try:
                     new_links = future.result(timeout=15)
-                    # Only add to results and visited list if we are still running
                     if self.is_running:
                         all_new_links.extend(new_links)
                         with self.url_lock:
                             self.visited_urls.add(url)
                 except Exception as e:
-                    if self.is_running: # Only log errors if we didn't intentionally stop
+                    if self.is_running:
                         logger.warning(f"Failed to process {url}: {e}")
                         with self.url_lock:
                             crawler_sessions[self.session_id]['stats']['errors'] += 1
                             
         except RuntimeError:
-            # This catches the "interpreter shutdown" error specifically
             logger.info("Executor accessed during shutdown. Stopping batch.")
         
         return all_new_links
     
     def process_single_page(self, url, depth):
-        # check the pause state
+        """Process a single page - Pure BeautifulSoup version"""
         self.check_pause()
-        """Process a single page - optimized version"""
-        self.rate_limit()  # Respect rate limiting
+        self.rate_limit()
         
         try:
             # Update stats
             with self.url_lock:
                 crawler_sessions[self.session_id]['stats']['pages_crawled'] += 1
             
-            # Try with BeautifulSoup first
+            # Fetch and Parse (Only using BS4)
             links = self.fast_process_with_beautifulsoup(url, depth)
-            if not self.is_running: return []
             
-            # Fallback to Selenium if needed and enabled
-            if not links and self.use_selenium:
-                links = self.fast_process_with_selenium(url, depth)
-                if not self.is_running: return []
+            if not self.is_running: return []
             
             # Filter and process found links
             filtered_links = []
@@ -1256,16 +1255,13 @@ class FastURLCrawler:
                         continue
                     
                     self.all_unique_urls.add(link['url'])
-                    # Increment global stats immediately
                     crawler_sessions[self.session_id]['stats']['total_found'] += 1
                     current_total = crawler_sessions[self.session_id]['stats']['total_found']
                 
-                # FIX 1: Set correct depth (Parent Depth + 1)
                 link['depth'] = depth + 1 
                 link['found_at'] = time.time()
                 filtered_links.append(link)
                 
-                # FIX 2: Use the synchronized global counter for accurate UI reporting
                 self.add_result({
                     'type': 'link_found',
                     'link': link,
@@ -1273,7 +1269,6 @@ class FastURLCrawler:
                     'total_visited': len(self.visited_urls) + 1
                 })
             
-            # SUCCESS: Add to class-level found_links once and return
             with self.url_lock:
                 self.found_links.extend(filtered_links)
             
@@ -1286,14 +1281,22 @@ class FastURLCrawler:
             return []
     
     def fast_process_with_beautifulsoup(self, url, depth):
-        """Optimized BeautifulSoup processing"""
+        """Standardized BeautifulSoup processing with DEBUG logging"""
         try:
-            response = self.session.get(url, timeout=8, allow_redirects=True)  # Reduced timeout
+            logger.info(f"Attempting to fetch: {url}") # <--- ADD THIS
+            
+            # IMDB often blocks based on TLS fingerprint. 
+            # verify=False helps sometimes (but insecure), purely for debugging here.
+            response = self.session.get(url, timeout=20, allow_redirects=True)
+            
+            logger.info(f"Status Code for {url}: {response.status_code}") # <--- ADD THIS
+
             response.raise_for_status()
             
             # Quick content type check
             content_type = response.headers.get('content-type', '')
             if 'text/html' not in content_type:
+                logger.warning(f"Skipping non-HTML content: {content_type}") # <--- ADD THIS
                 return []
             
             soup = BeautifulSoup(response.content, 'html.parser')
@@ -1305,41 +1308,9 @@ class FastURLCrawler:
             return links
             
         except Exception as e:
-            return []  # Silent fail, will try Selenium if enabled
-    
-    def fast_process_with_selenium(self, url, depth):
-        """Optimized Selenium processing with faster setup"""
-        driver = self.get_fast_driver()
-        if not driver:
+            # <--- CRITICAL CHANGE: Log the actual error instead of silencing it
+            logger.error(f"FAILED on {url}: {str(e)}") 
             return []
-            
-        try:
-            driver.set_page_load_timeout(10)
-            driver.get(url)
-            
-            # Faster waiting - only wait for body
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
-            
-            # Quick scroll instead of full scroll
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
-            time.sleep(0.2)
-            
-            page_source = driver.page_source
-            soup = BeautifulSoup(page_source, 'html.parser')
-            links = self.fast_extract_links(soup, url)
-            
-            with self.url_lock:
-                crawler_sessions[self.session_id]['stats']['selenium_fallback'] += 1
-            
-            return links
-            
-        except Exception:
-            return []
-        finally:
-            # Don't close driver immediately, reuse it
-            pass
     
     def fast_extract_links(self, soup, base_url):
         """Optimized link extraction"""
@@ -1367,7 +1338,7 @@ class FastURLCrawler:
                 
                 is_internal = parsed_url.netloc == base_domain
                 
-                link_text = a_tag.get_text(strip=True)[:150]  # Reduced text length
+                link_text = a_tag.get_text(strip=True)[:150]
                 if not link_text:
                     link_text = a_tag.get('title', '')[:150] or ''
                 
@@ -1384,70 +1355,33 @@ class FastURLCrawler:
                 continue
                 
         return links
-    
-    def get_fast_driver(self):
-        """Get optimized Selenium driver"""
-        if not self.driver:
-            try:
-                chrome_options = Options()
-                chrome_options.add_argument("--headless")
-                chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
-                chrome_options.add_argument("--no-sandbox")
-                chrome_options.add_argument("--disable-dev-shm-usage")
-                chrome_options.add_argument("--disable-gpu")
-                chrome_options.add_argument("--disable-images")  # Faster loading
-                chrome_options.add_argument("--blink-settings=imagesEnabled=false")
-                
-                self.driver = webdriver.Chrome(options=chrome_options)
-                self.driver.set_page_load_timeout(15)
-            except Exception as e:
-                logger.error(f"Failed to create driver: {e}")
-                return None
-        return self.driver
                 
     def add_result(self, result):
         """Push result to Redis List for the UI to pop"""
         if self.session_id:
             self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(result))
     
-    def close_driver(self):
-        """Close Selenium driver"""
-        if self.driver:
-            try:
-                self.driver.quit()
-            except:
-                pass
-            self.driver = None
-    
     def stop(self):
-        # 1. Prevent redundant calls
+        """Clean shutdown"""
         if not hasattr(self, 'is_running') or not self.is_running:
             return
         
-        # 2. EMERGENCY BRAKE: Set this FIRST.
         self.is_running = False 
         if hasattr(self, '_pause_event'):
             self._pause_event.set() 
         
-        # 3. Update Redis Status so Frontend knows we are done
-        # This is the line that fixes your Stop button issue
         self.r.set(f"crawler:status:{self.session_id}", "completed")
         
-        # 4. Shutdown executor
         if hasattr(self, 'executor'):
             try:
                 self.executor.shutdown(wait=False, cancel_futures=True)
             except:
                 pass
-                
-        # 5. Kill Selenium
-        self.close_driver() 
         
-        # 6. Final Session Cleanup
+        # Session Cleanup
         if self.session_id in crawler_sessions:
             stats = crawler_sessions[self.session_id].get('stats', {})
             
-            # Send the final "complete" message to the results list
             self.add_result({
                 'type': 'complete',
                 'message': f'🎉 Crawl finished. Visited {stats.get("pages_crawled", 0)} pages.',
@@ -1455,7 +1389,6 @@ class FastURLCrawler:
                 'total_pages': stats.get('pages_crawled', 0)
             })
             
-            # Mark the in-memory session as completed
             crawler_sessions[self.session_id]['status'] = 'completed'
             
             
@@ -1470,32 +1403,31 @@ def cleanup_old_sessions():
         last_polled = session_data.get('last_polled', 0)
         started_at = session_data.get('started_at', 0)
         
-        # 1. KILL if no poll in 30 seconds (User closed tab)
-        # 2. KILL if session is older than 2 hours (Safety limit)
         if (current_time - last_polled > 30) or (current_time - started_at > 7200):
             logger.info(f"Cleaning up zombie session: {session_id}")
             
             crawler = session_data.get('crawler')
             if crawler:
-                crawler.stop() # This kills threads and Selenium
+                crawler.stop()
             
             sessions_to_remove.append(session_id)
     
     for session_id in sessions_to_remove:
         crawler_sessions.pop(session_id, None)
 
-# Update your start_url_crawl function to use FastURLCrawler
+# --- VIEWS ---
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def start_url_crawl(request):
     data = json.loads(request.body)
     session_id = str(uuid.uuid4())
     
+    # We ignore 'use_selenium' from data, as we are now pure BS4
     crawler = FastURLCrawler(
         session_id=session_id,
         base_url=data.get('url'),
         max_depth=int(data.get('max_depth', 2)),
-        use_selenium=data.get('use_selenium', False),
         filters=data.get('filters', {}),
         max_workers=int(data.get('max_workers', 5))
     )
@@ -1534,7 +1466,7 @@ def get_crawl_results(request):
         if res:
             results.append(json.loads(res))
     
-    # 2. Get status and stats (keeping your exact frontend keys)
+    # 2. Get status and stats
     status = r.get(f"crawler:status:{session_id}") or "unknown"
     stats_raw = r.get(f"crawler:stats:{session_id}")
     stats = json.loads(stats_raw) if stats_raw else {}
@@ -1585,7 +1517,6 @@ def stop_crawl(request):
         r = redis.from_url(settings.REDIS_URL, decode_responses=True)
         
         # We set the status to 'stopped'. 
-        # The crawler's check_pause() loop will see this and kill the thread.
         r.set(f"crawler:status:{session_id}", "stopped")
         
         logger.info(f"Sent stop signal to session {session_id}")
