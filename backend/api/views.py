@@ -972,6 +972,12 @@ class FastURLCrawler:
         self._pause_event = threading.Event()
         self._pause_event.set() # Initialize as "not paused"
         
+        self._result_buffer = []
+        self._last_result_flush = time.time()
+        self._result_flush_size = 50        # flush when buffer reaches this many items
+        self._result_flush_interval = 0.5   # flush at least every 0.5s
+        self._stopped_by_user = False
+        
         # 3. Networking (Optimized for Pure BS4)
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(pool_connections=max_workers, pool_maxsize=max_workers*2)
@@ -1095,7 +1101,9 @@ class FastURLCrawler:
         while True:
             status = self.r.get(f"crawler:status:{self.session_id}")
             if status == "stopped":
+                # mark as user-initiated stop — stop all further pushes
                 self.is_running = False
+                self._stopped_by_user = True
                 return False
             if status == "paused":
                 time.sleep(1)
@@ -1147,7 +1155,8 @@ class FastURLCrawler:
                 while self.queue and len(current_batch) < batch_size:
                     url, depth = self.queue.popleft()
                     
-                    if url not in self.visited_urls and depth < self.max_depth:
+                    
+                    if url not in self.visited_urls and (self.max_depth is None or depth < self.max_depth):
                         current_batch.append((url, depth))
                 
                 if not current_batch:
@@ -1158,7 +1167,7 @@ class FastURLCrawler:
                 
                 # Add new links to queue
                 for link in new_links:
-                    if link['url'] not in self.visited_urls and link.get('depth', 0) < self.max_depth:
+                    if link['url'] not in self.visited_urls and (self.max_depth is None or link.get('depth', 0) < self.max_depth):
                         if self.should_follow_link(link):
                             self.queue.append((link['url'], link.get('depth', 0)))
                         else:
@@ -1166,7 +1175,7 @@ class FastURLCrawler:
                                 crawler_sessions[self.session_id]['stats']['filtered_links'] += 1
                 
                 # Progress update
-                if len(self.visited_urls) % 20 == 0:
+                if len(self.visited_urls) % 100 == 0:
                     self.add_result({
                         'type': 'progress',
                         'visited': len(self.visited_urls),
@@ -1367,38 +1376,88 @@ class FastURLCrawler:
         return links
                 
     def add_result(self, result):
-        """Push result to Redis List for the UI to pop"""
-        if self.session_id:
-            self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(result))
+        """Buffer results and flush to Redis in batches to avoid frontend lag."""
+        # If user requested stop, don't send anything.
+        if getattr(self, "_stopped_by_user", False):
+            return
+        if not self.session_id:
+            return
+
+        # Buffer
+        self._result_buffer.append(result)
+        now = time.time()
+        # Flush conditions: size threshold or time threshold
+        if len(self._result_buffer) >= self._result_flush_size or (now - self._last_result_flush) >= self._result_flush_interval:
+            try:
+                pipe = self.r.pipeline()
+                for res in self._result_buffer:
+                    pipe.rpush(f"crawler:results:{self.session_id}", json.dumps(res))
+                pipe.execute()
+            except Exception as e:
+                logger.error(f"Failed to flush result buffer: {e}")
+            finally:
+                self._result_buffer = []
+                self._last_result_flush = time.time()
     
     def stop(self):
         """Clean shutdown"""
         if not hasattr(self, 'is_running') or not self.is_running:
             return
-        
-        self.is_running = False 
+
+        # prevent more in-flight pushes
+        self.is_running = False
         if hasattr(self, '_pause_event'):
-            self._pause_event.set() 
-        
-        self.r.set(f"crawler:status:{self.session_id}", "completed")
-        
-        if hasattr(self, 'executor'):
+            self._pause_event.set()
+
+        # If the session was stopped by user (check flag set in check_pause),
+        # we must NOT push any more results (user requested 'stop means stop nothing should be sent').
+        if getattr(self, "_stopped_by_user", False):
+            # set Redis state to stopped and shutdown executor, but do not flush or push completion
             try:
-                self.executor.shutdown(wait=False, cancel_futures=True)
-            except:
+                self.r.set(f"crawler:status:{self.session_id}", "stopped")
+            except Exception:
                 pass
-        
-        # Session Cleanup
+            try:
+                if hasattr(self, 'executor'):
+                    self.executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            if self.session_id in crawler_sessions:
+                crawler_sessions[self.session_id]['status'] = 'stopped'
+            return
+
+        # Normal (non-user) completion path: flush any buffered results and send completion
+        try:
+            if getattr(self, "_result_buffer", None):
+                pipe = self.r.pipeline()
+                for res in self._result_buffer:
+                    pipe.rpush(f"crawler:results:{self.session_id}", json.dumps(res))
+                pipe.execute()
+                self._result_buffer = []
+        except Exception as e:
+            logger.error(f"Failed to flush results during stop: {e}")
+
+        try:
+            self.r.set(f"crawler:status:{self.session_id}", "completed")
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, 'executor'):
+                self.executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
+        # Push final 'complete' message (will be buffered/flushed immediately by add_result impl)
         if self.session_id in crawler_sessions:
             stats = crawler_sessions[self.session_id].get('stats', {})
-            
+            # Use add_result so that behavior remains consistent (it will flush immediately because of thresholds)
             self.add_result({
                 'type': 'complete',
                 'message': f'🎉 Crawl finished. Visited {stats.get("pages_crawled", 0)} pages.',
                 'total_links': stats.get('total_found', 0),
                 'total_pages': stats.get('pages_crawled', 0)
             })
-            
             crawler_sessions[self.session_id]['status'] = 'completed'
             
             
@@ -1434,12 +1493,21 @@ def start_url_crawl(request):
     session_id = str(uuid.uuid4())
     
     # We ignore 'use_selenium' from data, as we are now pure BS4
+    raw_max = data.get('max_depth', None)
+    if raw_max in (None, '', 'null'):
+        max_depth = None
+    else:
+        try:
+            max_depth = int(raw_max)
+        except Exception:
+            max_depth = None
+
     crawler = FastURLCrawler(
         session_id=session_id,
         base_url=data.get('url'),
-        max_depth=int(data.get('max_depth', 2)),
+        max_depth=max_depth,
         filters=data.get('filters', {}),
-        max_workers=int(data.get('max_workers', 5))
+        max_workers=int(data.get('max_workers', 5) or 5)
     )
     
     crawler.r.set(f"crawler:start_time:{session_id}", time.time(), ex=86400)
@@ -1517,6 +1585,7 @@ def get_crawl_status(request):
 @require_http_methods(["POST"])
 @csrf_exempt
 def stop_crawl(request):
+    r.set(f"crawler:status:{data.get('session_id')}", "stopped")
     try:
         data = json.loads(request.body)
         session_id = data.get('session_id')
