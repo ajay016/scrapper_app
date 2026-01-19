@@ -95,11 +95,12 @@ class FastURLCrawler:
     # -------------------------
 
     def rate_limit(self):
-        current_time = time.time()
-        elapsed = current_time - self.last_request_time
-        if elapsed < self.min_request_interval:
-            time.sleep(self.min_request_interval - elapsed)
-        self.last_request_time = time.time()
+        with self._rate_lock:
+            current_time = time.time()
+            elapsed = current_time - self.last_request_time
+            if elapsed < self.min_request_interval:
+                time.sleep(self.min_request_interval - elapsed)
+            self.last_request_time = time.time()
 
     def get_status(self):
         return self.r.get(f"crawler:status:{self.session_id}")
@@ -459,6 +460,11 @@ class FastURLCrawler:
             logger.info(f"Status Code for {url}: {response.status_code}")
 
             response.raise_for_status()
+            
+            if response.status_code in (403, 429):
+                logger.warning(f"BLOCKED {response.status_code} at {response.url}")
+                self.add_result({"type": "error", "message": f"Blocked: {response.status_code} {response.url}"})
+                return []
 
             content_type = response.headers.get("content-type", "")
             if "text/html" not in content_type:
@@ -532,57 +538,38 @@ class FastURLCrawler:
     # -------------------------
 
     def stop(self):
-        """
-        Clean shutdown.
-        - If stopped_by_user: do NOT flush buffer and do NOT push complete.
-        - If natural completion: flush buffer + push complete event immediately.
-        """
-        if not hasattr(self, "is_running") or not self.is_running:
+        if self._finalized:
             return
+        self._finalized = True
 
-        self.is_running = False
-
-        # STOPPED BY USER => no more results pushed
+        # If user stopped → mark stopped and exit
         if self._stopped_by_user:
+            self.r.set(f"crawler:status:{self.session_id}", "stopped", ex=86400)
             try:
-                self.r.set(f"crawler:status:{self.session_id}", "stopped", ex=86400)
+                self.executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
                 pass
-
-            try:
-                if hasattr(self, "executor"):
-                    self.executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
-
             return
 
-        # NATURAL COMPLETION => flush + completed + send complete event immediately
+        # Natural completion
         try:
             self.flush_buffer_now()
         except Exception:
             pass
 
-        try:
-            self.r.set(f"crawler:status:{self.session_id}", "completed", ex=86400)
-        except Exception:
-            pass
+        self.r.set(f"crawler:status:{self.session_id}", "completed", ex=86400)
+
+        # completion event
+        stats = self.get_redis_stats()
+        complete_payload = {
+            "type": "complete",
+            "message": f"🎉 Crawl finished. Visited {stats.get('pages_crawled', 0)} pages.",
+            "total_links": stats.get("total_found", 0),
+            "total_pages": stats.get("pages_crawled", 0),
+        }
+        self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(complete_payload))
 
         try:
-            if hasattr(self, "executor"):
-                self.executor.shutdown(wait=False, cancel_futures=True)
-        except Exception:
-            pass
-
-        # ✅ Send completion event immediately (no buffering)
-        try:
-            stats = self.get_redis_stats()
-            complete_payload = {
-                "type": "complete",
-                "message": f"🎉 Crawl finished. Visited {stats.get('pages_crawled', 0)} pages.",
-                "total_links": stats.get("total_found", 0),
-                "total_pages": stats.get("pages_crawled", 0),
-            }
-            self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(complete_payload))
+            self.executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
