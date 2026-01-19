@@ -974,77 +974,37 @@ def start_url_crawl(request):
     return JsonResponse({"success": True, "session_id": session_id})
 
 
-def get_redis_client():
-    redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
-    return redis.from_url(redis_url, decode_responses=True)
-
 
 @csrf_exempt
-@require_http_methods(["POST"])
 def pause_url_crawl(request):
-    try:
-        data = json.loads(request.body or "{}")
-        session_id = data.get("session_id")
+    data = json.loads(request.body)
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    r.set(f"crawler:status:{data.get('session_id')}", "paused")
+    return JsonResponse({'status': 'paused'})
 
-        if not session_id:
-            return JsonResponse({"error": "Session ID is required"}, status=400)
-
-        r = get_redis_client()
-        r.set(f"crawler:status:{session_id}", "paused", ex=86400)
-
-        return JsonResponse({"status": "paused"})
-
-    except Exception as e:
-        logger.error(f"pause_url_crawl error: {e}")
-        return JsonResponse({"error": str(e)}, status=500)
-
-
-# ✅ RESUME
 @csrf_exempt
-@require_http_methods(["POST"])
 def resume_url_crawl(request):
-    try:
-        data = json.loads(request.body or "{}")
-        session_id = data.get("session_id")
-
-        if not session_id:
-            return JsonResponse({"error": "Session ID is required"}, status=400)
-
-        r = get_redis_client()
-        r.set(f"crawler:status:{session_id}", "running", ex=86400)
-
-        return JsonResponse({"status": "resumed"})
-
-    except Exception as e:
-        logger.error(f"resume_url_crawl error: {e}")
-        return JsonResponse({"error": str(e)}, status=500)
-
+    data = json.loads(request.body)
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    r.set(f"crawler:status:{data.get('session_id')}", "running")
+    return JsonResponse({'status': 'resumed'})
 
 @require_http_methods(["GET"])
 def get_crawl_results(request):
-    session_id = request.GET.get("session_id")
-    if not session_id:
-        return JsonResponse({"error": "Session ID is required"}, status=400)
-
-    r = get_redis_client()
+    session_id = request.GET.get('session_id')
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
 
     key = f"crawler:results:{session_id}"
-    batch_size = int(request.GET.get("limit", 200))  # default same as your working version
+    batch_size = int(request.GET.get("limit", 200))  # 200 per poll is enough
 
-    # ✅ Read first N
+    # take first N items
     results_raw = r.lrange(key, 0, batch_size - 1)
 
-    # ✅ Trim first N
+    # remove those N items
     if results_raw:
         r.ltrim(key, len(results_raw), -1)
 
-    results = []
-    for item in results_raw:
-        try:
-            results.append(json.loads(item))
-        except Exception:
-            # ignore broken JSON
-            continue
+    results = [json.loads(x) for x in results_raw]
 
     status = r.get(f"crawler:status:{session_id}") or "unknown"
     stats_raw = r.get(f"crawler:stats:{session_id}")
@@ -1057,66 +1017,51 @@ def get_crawl_results(request):
         "total_results": len(results),
     })
 
-
-# ✅ STATUS (SAME FORMAT)
 @require_http_methods(["GET"])
 def get_crawl_status(request):
-    session_id = request.GET.get("session_id")
+    session_id = request.GET.get('session_id')
     if not session_id:
-        return JsonResponse({"error": "Session ID is required"}, status=400)
-
-    r = get_redis_client()
-
+        return JsonResponse({'error': 'Session ID is required'}, status=400)
+    
+    r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    
+    # Get Data from Redis
     status = r.get(f"crawler:status:{session_id}")
     stats_raw = r.get(f"crawler:stats:{session_id}")
     start_time = r.get(f"crawler:start_time:{session_id}")
 
     if not status:
-        return JsonResponse({"error": "Invalid session ID or session expired"}, status=404)
+        return JsonResponse({'error': 'Invalid session ID or session expired'}, status=404)
 
     stats = json.loads(stats_raw) if stats_raw else {}
-
-    running_time = 0
-    if start_time:
-        try:
-            running_time = round(time.time() - float(start_time), 2)
-        except Exception:
-            running_time = 0
+    running_time = round(time.time() - float(start_time), 2) if start_time else 0
 
     return JsonResponse({
-        "status": status,
-        "stats": stats,
-        "running_time": running_time,
-        "session_exists": True
+        'status': status,
+        'stats': stats,
+        'running_time': running_time,
+        'session_exists': True
     })
 
-
-# ✅ STOP (SAME FORMAT)
-@csrf_exempt
 @require_http_methods(["POST"])
+@csrf_exempt
 def stop_crawl(request):
     try:
-        data = json.loads(request.body or "{}")
-        session_id = data.get("session_id")
+        data = json.loads(request.body)
+        session_id = data.get('session_id')
 
         if not session_id:
-            return JsonResponse({"error": "Session ID is required"}, status=400)
+            return JsonResponse({'error': 'Session ID is required'}, status=400)
 
-        r = get_redis_client()
-        r.set(f"crawler:status:{session_id}", "stopped", ex=86400)
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        r.set(f"crawler:status:{session_id}", "stopped")
 
-        logger.info(f"Stop signal sent to session {session_id}")
-
-        return JsonResponse({
-            "success": True,
-            "message": "Crawling stopped"
-        })
+        logger.info(f"Sent stop signal to session {session_id}")
+        return JsonResponse({'success': True, 'message': 'Crawling stopped'})
 
     except Exception as e:
-        logger.error(f"stop_crawl error: {e}")
-        return JsonResponse({
-            "error": f"Failed to stop crawling: {str(e)}"
-        }, status=500)
+        logger.error(f"Failed to stop crawling: {e}")
+        return JsonResponse({'error': f'Failed to stop crawling: {str(e)}'}, status=500)
     
 
 @require_http_methods(["GET"])
