@@ -49,7 +49,7 @@ urlpatterns = [
     path('get-crawl-results/', views.get_crawl_results, name='get_crawl_results'),
     path('stop-crawl/', views.stop_crawl, name='stop_crawl'),
     path('get-crawl-status/', views.get_crawl_status, name='get_crawl_status'),
-    path('get-all-results/', views.get_all_results, name='get_all_results'),
+    # path('get-all-results/', views.get_all_results, name='get_all_results'),
     path('pause-crawl/', views.pause_url_crawl, name='pause_crawl'),
     path('resume-crawl/', views.resume_url_crawl, name='resume_crawl'),
     
