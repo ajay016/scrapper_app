@@ -324,7 +324,7 @@ class FastURLCrawler:
                     url, depth = self.queue.popleft()
 
                     if url not in self.visited_urls and (
-                        self.max_depth is None or depth < self.max_depth
+                        self.max_depth is None or depth <= self.max_depth
                     ):
                         current_batch.append((url, depth))
 
@@ -338,12 +338,13 @@ class FastURLCrawler:
                     if not self.is_running:
                         break
 
+                    next_depth = link.get("depth", 0)
+
                     if link["url"] not in self.visited_urls and (
-                        self.max_depth is None
-                        or link.get("depth", 0) < self.max_depth
+                        self.max_depth is None or next_depth <= self.max_depth
                     ):
                         if self.should_follow_link(link):
-                            self.queue.append((link["url"], link.get("depth", 0)))
+                            self.queue.append((link["url"], next_depth))
                         else:
                             self.update_redis_stats("filtered_links", 1)
 
