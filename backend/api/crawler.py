@@ -29,6 +29,8 @@ class FastURLCrawler:
         # 2) State
         self.visited_urls = set()
         self.all_unique_urls = set()
+        
+        self._finalized = False
 
         self.is_running = True
         self._stopped_by_user = False
