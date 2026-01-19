@@ -41,6 +41,7 @@ class FastURLCrawler:
         self.max_workers = max_workers
         self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
         self.url_lock = threading.Lock()
+        self._rate_lock = threading.Lock()
 
         self.found_links = []
 
@@ -71,7 +72,7 @@ class FastURLCrawler:
         # 4) Queue / Rate limit
         self.queue = deque([(self.base_url, 0)])
         self.last_request_time = 0
-        self.min_request_interval = 0.05
+        self.min_request_interval = 0.5
 
         # 5) Initialize Redis keys
         self.r.set(f"crawler:status:{self.session_id}", "running", ex=86400)
@@ -170,7 +171,7 @@ class FastURLCrawler:
         Strict link filter (internal links only).
         """
         if not self.filters:
-            return link.get("is_internal", False)
+            return link.get("is_internal", False) and link.get("crawlable", True)
 
         try:
             url = link.get("url", "")
@@ -461,12 +462,16 @@ class FastURLCrawler:
             response = self.session.get(url, timeout=20, allow_redirects=True)
             logger.info(f"Status Code for {url}: {response.status_code}")
 
-            response.raise_for_status()
-            
+            # ✅ Handle blocks BEFORE raising exception
             if response.status_code in (403, 429):
                 logger.warning(f"BLOCKED {response.status_code} at {response.url}")
-                self.add_result({"type": "error", "message": f"Blocked: {response.status_code} {response.url}"})
+                self.add_result({
+                    "type": "error",
+                    "message": f"Blocked: {response.status_code} {response.url}"
+                })
                 return []
+
+            response.raise_for_status()
 
             content_type = response.headers.get("content-type", "")
             if "text/html" not in content_type:
@@ -474,7 +479,7 @@ class FastURLCrawler:
                 return []
 
             soup = BeautifulSoup(response.content, "html.parser")
-            links = self.fast_extract_links(soup, url)
+            links = self.fast_extract_links(soup, response.url)  # ✅ USE FINAL URL
 
             self.update_redis_stats("beautifulsoup_success", 1)
             return links
@@ -540,36 +545,50 @@ class FastURLCrawler:
     # -------------------------
 
     def stop(self):
+        # ✅ run only once
         if self._finalized:
             return
         self._finalized = True
 
-        # If user stopped → mark stopped and exit
+        # ✅ stop threads
+        self.is_running = False
+
+        # ✅ If user clicked STOP
         if self._stopped_by_user:
-            self.r.set(f"crawler:status:{self.session_id}", "stopped", ex=86400)
+            try:
+                self.r.set(f"crawler:status:{self.session_id}", "stopped", ex=86400)
+            except Exception:
+                pass
+
             try:
                 self.executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
                 pass
             return
 
-        # Natural completion
+        # ✅ Natural completion (queue empty)
         try:
             self.flush_buffer_now()
         except Exception:
             pass
 
-        self.r.set(f"crawler:status:{self.session_id}", "completed", ex=86400)
+        try:
+            self.r.set(f"crawler:status:{self.session_id}", "completed", ex=86400)
+        except Exception:
+            pass
 
-        # completion event
-        stats = self.get_redis_stats()
-        complete_payload = {
-            "type": "complete",
-            "message": f"🎉 Crawl finished. Visited {stats.get('pages_crawled', 0)} pages.",
-            "total_links": stats.get("total_found", 0),
-            "total_pages": stats.get("pages_crawled", 0),
-        }
-        self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(complete_payload))
+        # ✅ Push completion event always
+        try:
+            stats = self.get_redis_stats()
+            complete_payload = {
+                "type": "complete",
+                "message": f"🎉 Crawl finished. Visited {stats.get('pages_crawled', 0)} pages.",
+                "total_links": stats.get("total_found", 0),
+                "total_pages": stats.get("pages_crawled", 0),
+            }
+            self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(complete_payload))
+        except Exception:
+            pass
 
         try:
             self.executor.shutdown(wait=False, cancel_futures=True)
