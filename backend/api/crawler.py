@@ -23,6 +23,8 @@ class FastURLCrawler:
         # 1) Redis
         redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
         self.r = redis.from_url(redis_url, decode_responses=True)
+        
+        self.root_domain = self._norm_domain(urlparse(base_url).netloc)
 
         # 2) State
         self.visited_urls = set()
@@ -110,21 +112,17 @@ class FastURLCrawler:
         return netloc
 
     def _is_internal_domain(self, netloc: str) -> bool:
-        """
-        Treat www. as internal.
-        Also allow subdomains if you want (optional).
-        """
-        base = self._norm_domain(self.base_domain)
+        base = self.root_domain
         cur = self._norm_domain(netloc)
 
         if not base or not cur:
             return False
 
-        # exact match after normalization
+        # exact match
         if cur == base:
             return True
 
-        # OPTIONAL: allow subdomains like m.imdb.com
+        # allow subdomains like m.imdb.com
         if cur.endswith("." + base):
             return True
 
@@ -459,11 +457,6 @@ class FastURLCrawler:
 
             response = self.session.get(url, timeout=20, allow_redirects=True)
             logger.info(f"Status Code for {url}: {response.status_code}")
-            
-            final_netloc = urlparse(response.url).netloc
-            
-            if final_netloc:
-                self.base_domain = final_netloc
 
             response.raise_for_status()
 
