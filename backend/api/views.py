@@ -1451,13 +1451,19 @@ class FastURLCrawler:
         # Push final 'complete' message (will be buffered/flushed immediately by add_result impl)
         if self.session_id in crawler_sessions:
             stats = crawler_sessions[self.session_id].get('stats', {})
-            # Use add_result so that behavior remains consistent (it will flush immediately because of thresholds)
-            self.add_result({
+
+            complete_payload = {
                 'type': 'complete',
                 'message': f'🎉 Crawl finished. Visited {stats.get("pages_crawled", 0)} pages.',
                 'total_links': stats.get('total_found', 0),
                 'total_pages': stats.get('pages_crawled', 0)
-            })
+            }
+
+            try:
+                self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(complete_payload))
+            except Exception:
+                pass
+
             crawler_sessions[self.session_id]['status'] = 'completed'
             
             
@@ -1536,24 +1542,28 @@ def resume_url_crawl(request):
 def get_crawl_results(request):
     session_id = request.GET.get('session_id')
     r = redis.from_url(settings.REDIS_URL, decode_responses=True)
-    
-    # 1. Pop all results currently in the Redis list (Real-time streaming)
-    results = []
-    while r.llen(f"crawler:results:{session_id}") > 0:
-        res = r.lpop(f"crawler:results:{session_id}")
-        if res:
-            results.append(json.loads(res))
-    
-    # 2. Get status and stats
+
+    key = f"crawler:results:{session_id}"
+    batch_size = int(request.GET.get("limit", 200))  # 200 per poll is enough
+
+    # take first N items
+    results_raw = r.lrange(key, 0, batch_size - 1)
+
+    # remove those N items
+    if results_raw:
+        r.ltrim(key, len(results_raw), -1)
+
+    results = [json.loads(x) for x in results_raw]
+
     status = r.get(f"crawler:status:{session_id}") or "unknown"
     stats_raw = r.get(f"crawler:stats:{session_id}")
     stats = json.loads(stats_raw) if stats_raw else {}
-    
+
     return JsonResponse({
-        'results': results,
-        'status': status,
-        'stats': stats,
-        'total_results': len(results)
+        "results": results,
+        "status": status,
+        "stats": stats,
+        "total_results": len(results),
     })
 
 @require_http_methods(["GET"])
@@ -1585,22 +1595,19 @@ def get_crawl_status(request):
 @require_http_methods(["POST"])
 @csrf_exempt
 def stop_crawl(request):
-    r.set(f"crawler:status:{data.get('session_id')}", "stopped")
     try:
         data = json.loads(request.body)
         session_id = data.get('session_id')
-        
+
         if not session_id:
             return JsonResponse({'error': 'Session ID is required'}, status=400)
-            
+
         r = redis.from_url(settings.REDIS_URL, decode_responses=True)
-        
-        # We set the status to 'stopped'. 
         r.set(f"crawler:status:{session_id}", "stopped")
-        
+
         logger.info(f"Sent stop signal to session {session_id}")
         return JsonResponse({'success': True, 'message': 'Crawling stopped'})
-        
+
     except Exception as e:
         logger.error(f"Failed to stop crawling: {e}")
         return JsonResponse({'error': f'Failed to stop crawling: {str(e)}'}, status=500)
