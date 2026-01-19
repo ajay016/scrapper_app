@@ -48,7 +48,6 @@ from .utils.search_engine_scrappers import(
     scrape_bing_results,
     scrape_duckduckgo_results
 )
-from .tasks import run_url_crawl
 from .utils.thread_generator import ThreadedGenerator
 
 
@@ -944,7 +943,553 @@ def upload_keywords(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+
+# In-memory storage for real-time updates
+# Global in-memory session tracker (for thread management)
+crawler_sessions = {}
+
+class FastURLCrawler:
+    def __init__(self, session_id, base_url, max_depth=2, filters=None, max_workers=5):
+        self.session_id = session_id
+        self.base_url = base_url
+        self.max_depth = max_depth
         
+        # 1. Setup Redis
+        redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379/0')
+        self.r = redis.from_url(redis_url, decode_responses=True)
+        
+        # 2. State & Safety
+        self.visited_urls = set()
+        self.is_running = True
+        self.base_domain = urlparse(base_url).netloc
+        self.filters = filters or {}
+        self.max_workers = max_workers
+        self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        self.url_lock = threading.Lock()
+        
+        self.found_links = []
+        self.all_unique_urls = set()
+        self._pause_event = threading.Event()
+        self._pause_event.set() # Initialize as "not paused"
+        
+        self._result_buffer = []
+        self._last_result_flush = time.time()
+        self._result_flush_size = 50        # flush when buffer reaches this many items
+        self._result_flush_interval = 0.5   # flush at least every 0.5s
+        self._stopped_by_user = False
+        
+        # 3. Networking (Optimized for Pure BS4)
+        self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=max_workers, pool_maxsize=max_workers*2)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
+        # Add User-Agent to mimic a browser (Crucial since we removed Selenium)
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
+        
+        # 4. Queue and Timing
+        self.queue = deque([(self.base_url, 0)])
+        self.last_request_time = 0
+        self.min_request_interval = 0.05
+        
+        # 5. INITIALIZE REDIS KEYS
+        self.r.set(f"crawler:status:{self.session_id}", "running", ex=86400)
+        # We keep 'selenium_fallback' in the stats to ensure frontend compatibility, 
+        # even though it will stay 0.
+        self.r.set(f"crawler:stats:{self.session_id}", json.dumps({
+            'total_found': 0, 'pages_crawled': 0, 'errors': 0, 
+            'filtered_links': 0, 'beautifulsoup_success': 0, 'selenium_fallback': 0,
+            'duplicates_skipped': 0, 'parallel_workers': self.max_workers
+        }), ex=86400)
+        
+    def rate_limit(self):
+        """Respectful rate limiting"""
+        current_time = time.time()
+        elapsed = current_time - self.last_request_time
+        if elapsed < self.min_request_interval:
+            time.sleep(self.min_request_interval - elapsed)
+        self.last_request_time = time.time()
+    
+    def should_follow_link(self, link):
+        """Air-tight filter checking with robust key handling"""
+        if not self.filters:
+            return link.get('is_internal', False)
+            
+        try:
+            url = link.get('url', '')
+            is_internal = link.get('is_internal', False)
+            
+            # Handle 'caseSensitive' (JS style) or 'case_sensitive' (Python style)
+            case_sensitive = self.filters.get('caseSensitive') or self.filters.get('case_sensitive') or False
+            
+            # 1. ALWAYS block external links first
+            if not is_internal:
+                return False
+            
+            # Pre-process URL once for comparison
+            check_url = url if case_sensitive else url.lower()
+
+            # 2. URL CONTAINS (Whitelist/Requirement)
+            # Check both key styles to prevent filter bypassing
+            url_contains_raw = self.filters.get('urlContains') or self.filters.get('url_contains')
+            
+            if url_contains_raw:
+                # Ensure we handle list inputs or comma-separated strings
+                if isinstance(url_contains_raw, list):
+                    keywords = [str(k).strip() for k in url_contains_raw if str(k).strip()]
+                else:
+                    keywords = [k.strip() for k in str(url_contains_raw).split(',') if k.strip()]
+
+                if keywords:
+                    match_found = any(
+                        (k if case_sensitive else k.lower()) in check_url 
+                        for k in keywords
+                    )
+                    # STRICT BLOCK: If keywords were provided but URL doesn't match, return False
+                    if not match_found:
+                        return False
+
+            # 3. URL EXCLUDES (Blacklist)
+            url_excludes_raw = self.filters.get('urlExcludes') or self.filters.get('url_excludes')
+            
+            if url_excludes_raw:
+                if isinstance(url_excludes_raw, list):
+                    excludes = [str(ex).strip() for ex in url_excludes_raw if str(ex).strip()]
+                else:
+                    excludes = [ex.strip() for ex in str(url_excludes_raw).split(',') if ex.strip()]
+                
+                for exclude in excludes:
+                    check_exclude = exclude if case_sensitive else exclude.lower()
+                    if check_exclude in check_url:
+                        return False
+
+            # 4. TEXT CONTAINS (Whitelist)
+            text_contains_raw = self.filters.get('textContains') or self.filters.get('text_contains')
+            
+            if text_contains_raw:
+                text = link.get('text', '')
+                check_text = text if case_sensitive else text.lower()
+                
+                if isinstance(text_contains_raw, list):
+                    text_keywords = [str(tk).strip() for tk in text_contains_raw if str(tk).strip()]
+                else:
+                    text_keywords = [tk.strip() for tk in str(text_contains_raw).split(',') if tk.strip()]
+                
+                if text_keywords:
+                    text_match = any(
+                        (tk if case_sensitive else tk.lower()) in check_text 
+                        for tk in text_keywords
+                    )
+                    if not text_match:
+                        return False
+
+            return True # Passed all checks
+            
+        except Exception as e:
+            # If an error occurs in the filter logic, we block the link to be safe
+            logger.error(f"Filter Error on {link.get('url')}: {e}")
+            return False
+    
+    def check_pause(self):
+        """Polls Redis to see if we should wait or stop"""
+        while True:
+            status = self.r.get(f"crawler:status:{self.session_id}")
+            if status == "stopped":
+                # mark as user-initiated stop — stop all further pushes
+                self.is_running = False
+                self._stopped_by_user = True
+                return False
+            if status == "paused":
+                time.sleep(1)
+                continue
+            return True
+
+    def update_redis_stats(self, key_name, increment=1):
+        """Helper to update stats inside Redis JSON string"""
+        with self.url_lock:
+            stats_raw = self.r.get(f"crawler:stats:{self.session_id}")
+            stats = json.loads(stats_raw) if stats_raw else {}
+            stats[key_name] = stats.get(key_name, 0) + increment
+            self.r.set(f"crawler:stats:{self.session_id}", json.dumps(stats))
+            return stats
+            
+    def crawl(self):
+        """Optimized crawling with parallel processing"""
+        try:
+            # Re-initialize executor if needed
+            self.executor.submit(lambda: None)
+        except (RuntimeError, AttributeError):
+            logger.info("Re-initializing executor for session")
+            self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+            
+        try:
+            if self.session_id not in crawler_sessions:
+                crawler_sessions[self.session_id] = {
+                    'crawler': self,
+                    'results': [],
+                    'started_at': time.time(),
+                    'status': 'running',
+                    'filters': self.filters,
+                    'stats': {
+                        'total_found': 0, 'pages_crawled': 0, 'beautifulsoup_success': 0,
+                        'selenium_fallback': 0, 'errors': 0, 'duplicates_skipped': 0,
+                        'filtered_links': 0, 'parallel_workers': self.max_workers
+                    }
+                }
+            
+            batch_size = 10 
+            
+            while self.queue and self.is_running:
+                self.check_pause()
+                
+                if not self.is_running: break
+                
+                # Take a batch of URLs to process in parallel
+                current_batch = []
+                while self.queue and len(current_batch) < batch_size:
+                    url, depth = self.queue.popleft()
+                    
+                    
+                    if url not in self.visited_urls and (self.max_depth is None or depth < self.max_depth):
+                        current_batch.append((url, depth))
+                
+                if not current_batch:
+                    continue
+                
+                # Process batch in parallel
+                new_links = self.process_batch_parallel(current_batch)
+                
+                # Add new links to queue
+                for link in new_links:
+                    if link['url'] not in self.visited_urls and (self.max_depth is None or link.get('depth', 0) < self.max_depth):
+                        if self.should_follow_link(link):
+                            self.queue.append((link['url'], link.get('depth', 0)))
+                        else:
+                            with self.url_lock:
+                                crawler_sessions[self.session_id]['stats']['filtered_links'] += 1
+                
+                # Progress update
+                if len(self.visited_urls) % 100 == 0:
+                    self.add_result({
+                        'type': 'progress',
+                        'visited': len(self.visited_urls),
+                        'found': len(self.found_links),
+                        'queued': len(self.queue),
+                        'filtered': crawler_sessions[self.session_id]['stats']['filtered_links'],
+                        'message': f'Progress: {len(self.visited_urls)} pages, {len(self.found_links)} links, {len(self.queue)} queued'
+                    })
+                            
+        except Exception as e:
+            if self.is_running: 
+                logger.error(f"Crawling error: {e}")
+                self.add_result({
+                    'type': 'error',
+                    'message': f'Crawling error: {str(e)}'
+                })
+        finally:
+            self.stop()
+    
+    def process_batch_parallel(self, url_batch):
+        """Process a batch of URLs using the persistent executor"""
+        all_new_links = []
+        
+        # Mark visited immediately
+        with self.url_lock:
+            for url, depth in url_batch:
+                self.visited_urls.add(url)
+        
+        try:
+            future_to_url = {
+                self.executor.submit(self.process_single_page, url, depth): (url, depth) 
+                for url, depth in url_batch
+            }
+            
+            for future in as_completed(future_to_url):
+                if not self.is_running:
+                    break
+                
+                url, depth = future_to_url[future]
+                try:
+                    new_links = future.result(timeout=15)
+                    if self.is_running:
+                        all_new_links.extend(new_links)
+                        with self.url_lock:
+                            self.visited_urls.add(url)
+                except Exception as e:
+                    if self.is_running:
+                        logger.warning(f"Failed to process {url}: {e}")
+                        with self.url_lock:
+                            crawler_sessions[self.session_id]['stats']['errors'] += 1
+                            
+        except RuntimeError:
+            logger.info("Executor accessed during shutdown. Stopping batch.")
+        
+        return all_new_links
+    
+    def process_single_page(self, url, depth):
+        """Process a single page - Pure BeautifulSoup version"""
+        self.check_pause()
+        self.rate_limit()
+        
+        try:
+            # Update stats
+            with self.url_lock:
+                crawler_sessions[self.session_id]['stats']['pages_crawled'] += 1
+            
+            # Fetch and Parse (Only using BS4)
+            links = self.fast_process_with_beautifulsoup(url, depth)
+            
+            if not self.is_running: return []
+            
+            # Filter and process found links
+            filtered_links = []
+            for link in links:
+                self.check_pause()
+                if not self.is_running: break
+                
+                if not self.should_follow_link(link):
+                    with self.url_lock:
+                        crawler_sessions[self.session_id]['stats']['filtered_links'] += 1
+                    continue 
+
+                with self.url_lock:
+                    if link['url'] in self.all_unique_urls:
+                        crawler_sessions[self.session_id]['stats']['duplicates_skipped'] += 1
+                        continue
+                    
+                    self.all_unique_urls.add(link['url'])
+                    crawler_sessions[self.session_id]['stats']['total_found'] += 1
+                    current_total = crawler_sessions[self.session_id]['stats']['total_found']
+                
+                link['depth'] = depth + 1 
+                link['found_at'] = time.time()
+                filtered_links.append(link)
+                
+                self.add_result({
+                    'type': 'link_found',
+                    'link': link,
+                    'total_found': current_total, 
+                    'total_visited': len(self.visited_urls) + 1
+                })
+            
+            with self.url_lock:
+                self.found_links.extend(filtered_links)
+            
+            return filtered_links
+            
+        except Exception as e:
+            logger.error(f"Error processing page {url}: {e}")
+            with self.url_lock:
+                crawler_sessions[self.session_id]['stats']['errors'] += 1
+            return []
+    
+    def fast_process_with_beautifulsoup(self, url, depth):
+        """Standardized BeautifulSoup processing with DEBUG logging"""
+        try:
+            logger.info(f"Attempting to fetch: {url}") # <--- ADD THIS
+            
+            # IMDB often blocks based on TLS fingerprint. 
+            # verify=False helps sometimes (but insecure), purely for debugging here.
+            response = self.session.get(url, timeout=20, allow_redirects=True)
+            
+            logger.info(f"Status Code for {url}: {response.status_code}") # <--- ADD THIS
+
+            response.raise_for_status()
+            
+            # Quick content type check
+            content_type = response.headers.get('content-type', '')
+            if 'text/html' not in content_type:
+                logger.warning(f"Skipping non-HTML content: {content_type}") # <--- ADD THIS
+                return []
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            links = self.fast_extract_links(soup, url)
+            
+            with self.url_lock:
+                crawler_sessions[self.session_id]['stats']['beautifulsoup_success'] += 1
+            
+            return links
+            
+        except Exception as e:
+            # <--- CRITICAL CHANGE: Log the actual error instead of silencing it
+            logger.error(f"FAILED on {url}: {str(e)}") 
+            return []
+    
+    def fast_extract_links(self, soup, base_url):
+        """Optimized link extraction that CAPTURES contacts but flags them"""
+        links = []
+        base_domain = self.base_domain
+        seen_urls = set()
+        
+        for a_tag in soup.find_all('a', href=True):
+            try:
+                href = a_tag['href'].strip()
+                
+                # 1. ONLY filter out crash-prone javascript or empty links
+                # We KEEP 'mailto:' and 'tel:' now.
+                if not href or href.startswith(('javascript:', '#')):
+                    continue
+                
+                full_url = urljoin(base_url, href)
+                parsed_url = urlparse(full_url)
+                
+                # 2. Check protocol
+                scheme = parsed_url.scheme.lower()
+                is_http = scheme in ['http', 'https']
+                is_contact = scheme in ['mailto', 'tel']
+
+                # Quick normalization
+                if is_http:
+                    normalized_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
+                    if parsed_url.query: normalized_url += f"?{parsed_url.query}"
+                else:
+                    # Keep mailto/tel exactly as is
+                    normalized_url = full_url
+
+                if normalized_url in seen_urls: continue
+                seen_urls.add(normalized_url)
+                
+                is_internal = parsed_url.netloc == base_domain
+                
+                link_text = a_tag.get_text(strip=True)[:150] or a_tag.get('title', '')[:150]
+                
+                links.append({
+                    'url': normalized_url,
+                    'text': link_text,
+                    'is_internal': is_internal,
+                    'is_external': not is_internal and is_http,
+                    'is_contact': is_contact,    # <--- NEW FLAG
+                    'crawlable': is_http,        # <--- KEY SAFETY FLAG
+                    'source_url': base_url,
+                    'domain': parsed_url.netloc
+                })
+                
+            except Exception:
+                continue
+                
+        return links
+                
+    def add_result(self, result):
+        """Buffer results and flush to Redis in batches to avoid frontend lag."""
+        # If user requested stop, don't send anything.
+        if getattr(self, "_stopped_by_user", False):
+            return
+        if not self.session_id:
+            return
+
+        # Buffer
+        self._result_buffer.append(result)
+        now = time.time()
+        # Flush conditions: size threshold or time threshold
+        if len(self._result_buffer) >= self._result_flush_size or (now - self._last_result_flush) >= self._result_flush_interval:
+            try:
+                pipe = self.r.pipeline()
+                for res in self._result_buffer:
+                    pipe.rpush(f"crawler:results:{self.session_id}", json.dumps(res))
+                pipe.execute()
+            except Exception as e:
+                logger.error(f"Failed to flush result buffer: {e}")
+            finally:
+                self._result_buffer = []
+                self._last_result_flush = time.time()
+    
+    def stop(self):
+        """Clean shutdown"""
+        if not hasattr(self, 'is_running') or not self.is_running:
+            return
+
+        # prevent more in-flight pushes
+        self.is_running = False
+        if hasattr(self, '_pause_event'):
+            self._pause_event.set()
+
+        # If the session was stopped by user (check flag set in check_pause),
+        # we must NOT push any more results (user requested 'stop means stop nothing should be sent').
+        if getattr(self, "_stopped_by_user", False):
+            # set Redis state to stopped and shutdown executor, but do not flush or push completion
+            try:
+                self.r.set(f"crawler:status:{self.session_id}", "stopped")
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 'executor'):
+                    self.executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+            if self.session_id in crawler_sessions:
+                crawler_sessions[self.session_id]['status'] = 'stopped'
+            return
+
+        # Normal (non-user) completion path: flush any buffered results and send completion
+        try:
+            if getattr(self, "_result_buffer", None):
+                pipe = self.r.pipeline()
+                for res in self._result_buffer:
+                    pipe.rpush(f"crawler:results:{self.session_id}", json.dumps(res))
+                pipe.execute()
+                self._result_buffer = []
+        except Exception as e:
+            logger.error(f"Failed to flush results during stop: {e}")
+
+        try:
+            self.r.set(f"crawler:status:{self.session_id}", "completed")
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, 'executor'):
+                self.executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
+        # Push final 'complete' message (will be buffered/flushed immediately by add_result impl)
+        if self.session_id in crawler_sessions:
+            stats = crawler_sessions[self.session_id].get('stats', {})
+
+            complete_payload = {
+                'type': 'complete',
+                'message': f'🎉 Crawl finished. Visited {stats.get("pages_crawled", 0)} pages.',
+                'total_links': stats.get('total_found', 0),
+                'total_pages': stats.get('pages_crawled', 0)
+            }
+
+            try:
+                self.r.set(f"crawler:status:{self.session_id}", "completed")
+                self.r.rpush(f"crawler:results:{self.session_id}", json.dumps(complete_payload))
+            except Exception:
+                pass
+
+            crawler_sessions[self.session_id]['status'] = 'completed'
+            
+            
+# Session cleanup function
+def cleanup_old_sessions():
+    """Force stop crawlers where the user has closed the tab"""
+    current_time = time.time()
+    sessions_to_remove = []
+    
+    # Use list() to avoid "dictionary changed size during iteration" error
+    for session_id, session_data in list(crawler_sessions.items()):
+        last_polled = session_data.get('last_polled', 0)
+        started_at = session_data.get('started_at', 0)
+        
+        if (current_time - last_polled > 30) or (current_time - started_at > 7200):
+            logger.info(f"Cleaning up zombie session: {session_id}")
+            
+            crawler = session_data.get('crawler')
+            if crawler:
+                crawler.stop()
+            
+            sessions_to_remove.append(session_id)
+    
+    for session_id in sessions_to_remove:
+        crawler_sessions.pop(session_id, None)
 
 # --- VIEWS ---
 
@@ -953,9 +1498,10 @@ def upload_keywords(request):
 def start_url_crawl(request):
     data = json.loads(request.body)
     session_id = str(uuid.uuid4())
-
-    raw_max = data.get("max_depth", None)
-    if raw_max in (None, "", "null"):
+    
+    # We ignore 'use_selenium' from data, as we are now pure BS4
+    raw_max = data.get('max_depth', None)
+    if raw_max in (None, '', 'null'):
         max_depth = None
     else:
         try:
@@ -963,17 +1509,21 @@ def start_url_crawl(request):
         except Exception:
             max_depth = None
 
-    run_url_crawl.delay(
+    crawler = FastURLCrawler(
         session_id=session_id,
-        url=data.get("url"),
+        base_url=data.get('url'),
         max_depth=max_depth,
-        filters=data.get("filters", {}),
-        max_workers=int(data.get("max_workers", 5) or 5),
+        filters=data.get('filters', {}),
+        max_workers=int(data.get('max_workers', 5) or 5)
     )
-
-    return JsonResponse({"success": True, "session_id": session_id})
-
-
+    
+    crawler.r.set(f"crawler:start_time:{session_id}", time.time(), ex=86400)
+    
+    thread = threading.Thread(target=crawler.crawl)
+    thread.daemon = True
+    thread.start()
+    
+    return JsonResponse({'success': True, 'session_id': session_id})
 
 @csrf_exempt
 def pause_url_crawl(request):
@@ -1067,36 +1617,27 @@ def stop_crawl(request):
 @require_http_methods(["GET"])
 def list_sessions(request):
     r = redis.from_url(settings.REDIS_URL, decode_responses=True)
-
+    
+    # Find all keys that represent a status
+    status_keys = r.keys("crawler:status:*")
+    
     sessions_info = {}
-    cursor = 0
-
-    while True:
-        cursor, keys = r.scan(cursor=cursor, match="crawler:status:*", count=200)
-
-        for key in keys:
-            session_id = key.split(":")[-1]
-            status = r.get(key)
-
-            stats_raw = r.get(f"crawler:stats:{session_id}")
-            start_time = r.get(f"crawler:start_time:{session_id}")
-
-            stats = json.loads(stats_raw) if stats_raw else {}
-            started_at = float(start_time) if start_time else 0
-
-            sessions_info[session_id] = {
-                "status": status,
-                "started_at": started_at,
-                "stats": stats,
-                "running_time": round(time.time() - started_at, 2) if started_at else 0,
-            }
-
-        if cursor == 0:
-            break
-
+    for key in status_keys:
+        session_id = key.split(":")[-1]
+        status = r.get(key)
+        stats_raw = r.get(f"crawler:stats:{session_id}")
+        start_time = r.get(f"crawler:start_time:{session_id}")
+        
+        sessions_info[session_id] = {
+            'status': status,
+            'started_at': float(start_time) if start_time else 0,
+            'stats': json.loads(stats_raw) if stats_raw else {},
+            'running_time': round(time.time() - float(start_time), 2) if start_time else 0
+        }
+    
     return JsonResponse({
-        "active_sessions": len(sessions_info),
-        "sessions": sessions_info
+        'active_sessions': len(sessions_info),
+        'sessions': sessions_info
     })
 
 
@@ -1303,24 +1844,24 @@ def get_project_search_history(request):
     except Exception as e:
         return JsonResponse({'error': f'Failed to get search history: {str(e)}'}, status=500)
 
-# @require_http_methods(["GET"])
-# def get_all_results(request):
-#     """Get all results for a session"""
-#     session_id = request.GET.get('session_id')
+@require_http_methods(["GET"])
+def get_all_results(request):
+    """Get all results for a session"""
+    session_id = request.GET.get('session_id')
     
-#     if not session_id:
-#         return JsonResponse({'error': 'Session ID is required'}, status=400)
+    if not session_id:
+        return JsonResponse({'error': 'Session ID is required'}, status=400)
     
-#     if session_id not in crawler_sessions:
-#         return JsonResponse({'error': 'Session not found'}, status=404)
+    if session_id not in crawler_sessions:
+        return JsonResponse({'error': 'Session not found'}, status=404)
     
-#     session = crawler_sessions[session_id]
+    session = crawler_sessions[session_id]
     
-#     return JsonResponse({
-#         'results': session.get('crawler', {}).found_links if session.get('crawler') else [],
-#         'stats': session.get('stats', {}),
-#         'status': session.get('status', 'unknown')
-#     })
+    return JsonResponse({
+        'results': session.get('crawler', {}).found_links if session.get('crawler') else [],
+        'stats': session.get('stats', {}),
+        'status': session.get('status', 'unknown')
+    })
 
 
 @require_http_methods(["GET"])
