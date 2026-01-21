@@ -20,9 +20,11 @@ services:
       - "8000:8000"
     depends_on:
       - redis
-    # Ensure manage.py is in the root of scraper_backend
-    # command: python manage.py runserver 0.0.0.0:8000
-    command: sh -c "rm -f /tmp/.X*-lock && xvfb-run -a python manage.py runserver 0.0.0.0:8000"
+    environment:
+      - DISPLAY=host.docker.internal:0.0
+      - QT_X11_NO_MITSHM=1
+    shm_size: "1gb"
+    command: python manage.py runserver 0.0.0.0:8000
 
   worker:
     build: .
@@ -36,8 +38,11 @@ services:
       - /dev/shm:/dev/shm
     depends_on:
       - redis
-    # CHANGED: -A razer_project -> -A scraper_backend
-    command: ["xvfb-run", "-a", "-s", "-screen 0 1280x720x24", "celery", "-A", "scraper_backend", "worker", "-l", "info", "--concurrency=4"]
+    environment:
+      - DISPLAY=host.docker.internal:0.0
+      - QT_X11_NO_MITSHM=1
+    shm_size: "1gb"
+    command: ["celery", "-A", "scraper_backend", "worker", "-l", "info", "--concurrency=4"]
 
   beat:
     build: .
@@ -49,7 +54,6 @@ services:
       - .:/app
     depends_on:
       - redis
-    # CHANGED: -A razer_project -> -A scraper_backend
     command: ["celery", "-A", "scraper_backend", "beat", "-l", "info"]
 
 volumes:

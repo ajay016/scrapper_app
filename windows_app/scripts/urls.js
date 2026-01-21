@@ -15,6 +15,8 @@ console.log("🚀 urls.js is loading...");
 (function () {
   "use strict";
 
+  const { ipcRenderer } = require("electron");
+
   console.log("🏭 Creating URLs module...");
 
   let selectedItems = new Set();
@@ -53,47 +55,105 @@ console.log("🚀 urls.js is loading...");
   let isFilterActive = false;
   let isParsingWithFilters = false;
 
-  function renderResults(results, baseIndex = 0) {
-    if (!results || !results.length) return "";
-    return results
-      .map((r, index) => {
-        const displayCount = baseIndex + index + 1;
-        const uniqueId = `${baseIndex + index}`;
-        const isChecked = selectedItems.has(uniqueId);
-        return `
-                <div class="card my-2 p-2">
-                    <div class="form-check d-flex align-items-start">
-                        <span class="text-muted me-5 mt-1" style="min-width: 40px;">
-                            ${displayCount}
-                        </span>
-                        <input class="form-check-input result-checkbox" type="checkbox" 
-                            data-url="${r.url}" data-text="${r.text || r.url}" 
-                            data-id="${uniqueId}" ${isChecked ? "checked" : ""}>
-                        <label class="form-check-label">
-                            <a href="${r.url}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
-                                ${r.text || r.url}
-                            </a>
-                            <span class="badge ${r.is_internal ? "bg-primary" : "bg-warning"} ms-2">
-                                ${r.is_internal ? "Internal" : "External"}
+  let heartbeatStarted = false;
+
+    let lastUIRender = 0;
+    const UI_RENDER_INTERVAL = 300; // ms (render max ~3 times/sec)
+    let uiRenderScheduled = false;
+
+    function scheduleUIRender() {
+        if (uiRenderScheduled) return;
+
+        const now = Date.now();
+        if (now - lastUIRender < UI_RENDER_INTERVAL) return;
+
+        uiRenderScheduled = true;
+
+        setTimeout(() => {
+            uiRenderScheduled = false;
+            lastUIRender = Date.now();
+
+            // ✅ only render if allowed
+            if (!isPaused && !isWindowMinimized) {
+            renderLinkBatch();
+            }
+        }, 0);
+    }
+
+    document.addEventListener("visibilitychange", () => {
+        isWindowMinimized = document.hidden;
+
+        if (!isWindowMinimized) {
+            // ✅ when window comes back, render everything we collected
+            scheduleUIRender();
+        }
+    });
+
+    function startHeartbeat() {
+        if (!currentSessionId || heartbeatStarted) return;
+        heartbeatStarted = true;
+
+        ipcRenderer.send("heartbeat-start", {
+            sessionId: currentSessionId,
+            apiBaseUrl: API_BASE_URL,
+            token: localStorage.getItem("accessToken"), // ✅ include only if your API needs Authorization
+        });
+
+        console.log("💓 Heartbeat started:", currentSessionId);
+    }
+
+    function stopHeartbeat() {
+        if (!currentSessionId || !heartbeatStarted) return;
+
+        ipcRenderer.send("heartbeat-stop", {
+            sessionId: currentSessionId,
+        });
+
+        heartbeatStarted = false;
+        console.log("🛑 Heartbeat stopped:", currentSessionId);
+    }
+
+    function renderResults(results, baseIndex = 0) {
+        if (!results || !results.length) return "";
+        return results
+        .map((r, index) => {
+            const displayCount = baseIndex + index + 1;
+            const uniqueId = `${baseIndex + index}`;
+            const isChecked = selectedItems.has(uniqueId);
+            return `
+                    <div class="card my-2 p-2">
+                        <div class="form-check d-flex align-items-start">
+                            <span class="text-muted me-5 mt-1" style="min-width: 40px;">
+                                ${displayCount}
                             </span>
-                            ${r.depth !== undefined ? `<span class="badge bg-info ms-1">Depth: ${r.depth}</span>` : ""}
-                            ${r.source_url ? `<small class="text-muted d-block mt-1">From: ${r.source_url}</small>` : ""}
-                        </label>
+                            <input class="form-check-input result-checkbox" type="checkbox" 
+                                data-url="${r.url}" data-text="${r.text || r.url}" 
+                                data-id="${uniqueId}" ${isChecked ? "checked" : ""}>
+                            <label class="form-check-label">
+                                <a href="${r.url}" target="_blank" rel="noreferrer noopener" class="text-decoration-none">
+                                    ${r.text || r.url}
+                                </a>
+                                <span class="badge ${r.is_internal ? "bg-primary" : "bg-warning"} ms-2">
+                                    ${r.is_internal ? "Internal" : "External"}
+                                </span>
+                                ${r.depth !== undefined ? `<span class="badge bg-info ms-1">Depth: ${r.depth}</span>` : ""}
+                                ${r.source_url ? `<small class="text-muted d-block mt-1">From: ${r.source_url}</small>` : ""}
+                            </label>
+                        </div>
                     </div>
+                `;
+        })
+        .join("");
+    }
+
+    function renderStatusMessage(message, type = "info") {
+        return `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             `;
-      })
-      .join("");
-  }
-
-  function renderStatusMessage(message, type = "info") {
-    return `
-            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                ${message}
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        `;
-  }
+    }
 
   function renderRealTimeUpdate(update) {
     const statusContainer = document.getElementById("realtime-status");
@@ -149,6 +209,11 @@ console.log("🚀 urls.js is loading...");
         `;
 
     statusContainer.appendChild(alertDiv);
+
+    // ✅ LIMIT REALTIME DOM SIZE (IMPORTANT)
+        while (statusContainer.children.length > 150) {
+        statusContainer.removeChild(statusContainer.firstChild);
+    }
 
     if (type !== "danger" && type !== "warning") {
       setTimeout(() => {
@@ -493,33 +558,19 @@ console.log("🚀 urls.js is loading...");
             if (totalBadge) totalBadge.textContent = allResults.length;
 
             updateProgressBar(allResults.length);
+            scheduleUIRender();
           }
 
-          // 2. GATED RENDERING (Immediate Pause & Background Crawling)
-          // Skip UI rendering when paused OR window is minimized, but always collect data
-          if (!isPaused && !isWindowMinimized) {
-            renderRealTimeUpdate(update);
+            // 2. GATED RENDERING (Immediate Pause & Background Crawling)
+            // Skip UI rendering when paused OR window is minimized, but always collect data
+            if (!isPaused && !isWindowMinimized) {
+                renderRealTimeUpdate(update);
 
-            if (update.type === "link_found") {
-              const now = Date.now();
-              if (typeof window.lastRenderedIndex === "undefined")
-                window.lastRenderedIndex = 0;
-
-              const newLinksCount =
-                allResults.length - window.lastRenderedIndex;
-              const shouldRender =
-                now - lastRenderTime > RENDER_INTERVAL || newLinksCount >= 20;
-
-              if (shouldRender && newLinksCount > 0) {
-                renderLinkBatch();
-              }
+                if (update.type === "complete") {
+                    renderLinkBatch(); 
+                    stopCrawling();
+                }
             }
-
-            if (update.type === "complete") {
-              renderLinkBatch();
-              stopCrawling();
-            }
-          }
 
           // Small delay to keep the UI responsive
           await new Promise((resolve) => setTimeout(resolve, 20));
@@ -530,36 +581,36 @@ console.log("🚀 urls.js is loading...");
     } catch (error) {
       console.error("Error fetching crawl results:", error);
     }
+  }
 
     // Helper function is now "Pause-Aware" and "Minimize-Aware"
     function renderLinkBatch() {
-      const resultsContainer = document.getElementById("results-content");
-      if (!resultsContainer || isPaused || isWindowMinimized) return; // Skip rendering if paused or minimized
+        const resultsContainer = document.getElementById("results-content");
+        if (!resultsContainer || isPaused || isWindowMinimized) return; // Skip rendering if paused or minimized
 
-      // Force it to 0 if it's somehow larger than the current results length (safety check)
-      if (window.lastRenderedIndex > allResults.length) {
-        window.lastRenderedIndex = 0;
-      }
+        // Force it to 0 if it's somehow larger than the current results length (safety check)
+        if (window.lastRenderedIndex > allResults.length) {
+            window.lastRenderedIndex = 0;
+        }
 
-      const startIndex = window.lastRenderedIndex || 0;
-      // Slice everything from where we left off to the current end of allResults
-      const batchToRender = allResults.slice(startIndex);
+        const startIndex = window.lastRenderedIndex || 0;
+        // Slice everything from where we left off to the current end of allResults
+        const batchToRender = allResults.slice(startIndex);
 
-      if (batchToRender.length > 0) {
-        resultsContainer.insertAdjacentHTML(
-          "beforeend",
-          renderResults(batchToRender, startIndex),
-        );
+        if (batchToRender.length > 0) {
+            resultsContainer.insertAdjacentHTML(
+                "beforeend",
+                renderResults(batchToRender, startIndex),
+            );
 
-        attachCheckboxHandlers();
-        resultsContainer.scrollTop = resultsContainer.scrollHeight;
+            attachCheckboxHandlers();
+            resultsContainer.scrollTop = resultsContainer.scrollHeight;
 
-        // Only update the index after we successfully put it in the DOM
-        window.lastRenderedIndex = allResults.length;
-        lastRenderTime = Date.now();
-      }
+            // Only update the index after we successfully put it in the DOM
+            window.lastRenderedIndex = allResults.length;
+            lastRenderTime = Date.now();
+        }
     }
-  }
 
   async function fetchCrawlStatus(sessionId) {
     try {
@@ -581,83 +632,84 @@ console.log("🚀 urls.js is loading...");
     }
   }
 
-  async function stopCrawling() {
-    // ... your existing fetch stop logic ...
-    if (currentSessionId) {
-      try {
-        await fetch(`${API_BASE_URL}/api/stop-crawl/`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-          },
-          body: JSON.stringify({ session_id: currentSessionId }),
-        });
-      } catch (error) {
-        console.error("Error stopping crawl:", error);
-      }
+    async function stopCrawling() {
+        // ✅ 1) stop heartbeat FIRST (always)
+        stopHeartbeat();
+
+        // ✅ 2) mark crawling stopped
+        isCrawling = false;
+
+        // ✅ 3) stop backend crawling if session exists
+        const sessionToStop = currentSessionId; // ✅ save it before nulling
+        if (sessionToStop) {
+            try {
+            await fetch(`${API_BASE_URL}/api/stop-crawl/`, {
+                method: "POST",
+                headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+                },
+                body: JSON.stringify({ session_id: sessionToStop }),
+            });
+            } catch (error) {
+            console.error("Error stopping crawl:", error);
+            }
+        }
+
+        // ✅ 4) NOW clear session id
+        currentSessionId = null;
+
+        // ✅ 5) Clean up intervals
+        if (resultsInterval) {
+            clearInterval(resultsInterval);
+            resultsInterval = null;
+        }
+        if (statusInterval) {
+            clearInterval(statusInterval);
+            statusInterval = null;
+        }
+
+        // --- NEW PAGINATION LOGIC START ---
+        const resultsToShow = isFilterActive ? filteredResults : allResults;
+        const totalPages = Math.ceil(resultsToShow.length / itemsPerPage);
+
+        if (resultsToShow.length > 0) {
+            currentPage = 1;
+
+            const firstPageResults = paginateResults(resultsToShow, currentPage, itemsPerPage);
+
+            const resultsContainer = document.getElementById("results-content");
+            if (resultsContainer) {
+            resultsContainer.innerHTML = renderResults(firstPageResults, 0);
+            resultsContainer.scrollTop = 0;
+            }
+
+            renderPagination(totalPages, currentPage);
+        }
+        // --- NEW PAGINATION LOGIC END ---
+
+        // UI Reset
+        const searchBtn = document.getElementById("search-url-btn");
+        const stopBtn = document.getElementById("stop-crawl-btn");
+        if (searchBtn) {
+            searchBtn.disabled = false;
+            searchBtn.innerHTML = '<i class="bi bi-search"></i> Начать ползание';
+        }
+        if (stopBtn) stopBtn.style.display = "none";
+
+        const progressBar = document.getElementById("crawl-progress-bar");
+        if (progressBar) {
+            progressBar.classList.remove("progress-bar-animated");
+            progressBar.classList.add("bg-success");
+        }
+
+        attachCheckboxHandlers();
+
+        const pauseBtn = document.getElementById("pause-crawl-btn");
+        if (pauseBtn) pauseBtn.style.display = "none";
+
+        isPaused = false;
     }
-
-    isCrawling = false;
-    currentSessionId = null;
-
-    // Clean up intervals
-    if (resultsInterval) {
-      clearInterval(resultsInterval);
-      resultsInterval = null;
-    }
-    if (statusInterval) {
-      clearInterval(statusInterval);
-      statusInterval = null;
-    }
-
-    // --- NEW PAGINATION LOGIC START ---
-    const resultsToShow = isFilterActive ? filteredResults : allResults;
-    const totalPages = Math.ceil(resultsToShow.length / itemsPerPage);
-
-    if (resultsToShow.length > 0) {
-      currentPage = 1;
-      // Slice the results for the first page
-      const firstPageResults = paginateResults(
-        resultsToShow,
-        currentPage,
-        itemsPerPage,
-      );
-
-      // Clear the real-time "stream" and replace with only Page 1
-      const resultsContainer = document.getElementById("results-content");
-      if (resultsContainer) {
-        resultsContainer.innerHTML = renderResults(firstPageResults, 0);
-        resultsContainer.scrollTop = 0; // Scroll back to top
-      }
-
-      // Render the pagination numbers
-      renderPagination(totalPages, currentPage);
-    }
-    // --- NEW PAGINATION LOGIC END ---
-
-    // UI Reset
-    const searchBtn = document.getElementById("search-url-btn");
-    const stopBtn = document.getElementById("stop-crawl-btn");
-    if (searchBtn) {
-      searchBtn.disabled = false;
-      searchBtn.innerHTML = '<i class="bi bi-search"></i> Начать ползание';
-    }
-    if (stopBtn) stopBtn.style.display = "none";
-
-    const progressBar = document.getElementById("crawl-progress-bar");
-    if (progressBar) {
-      progressBar.classList.remove("progress-bar-animated");
-      progressBar.classList.add("bg-success");
-    }
-
-    attachCheckboxHandlers();
-
-    const pauseBtn = document.getElementById("pause-crawl-btn");
-    if (pauseBtn) pauseBtn.style.display = "none";
-
-    isPaused = false;
-  }
 
   async function togglePauseResume() {
     const pauseBtn = document.getElementById("pause-crawl-btn");
@@ -1326,6 +1378,8 @@ console.log("🚀 urls.js is loading...");
     };
   }
 
+    
+
   function init() {
     console.log("✅ INIT: URLs module init() called");
 
@@ -1597,6 +1651,9 @@ console.log("🚀 urls.js is loading...");
         }
 
         currentSessionId = data.session_id;
+        isCrawling = true;
+        startHeartbeat();
+
         console.log(
           "✅ MAIN HANDLER: Crawl started with session ID:",
           currentSessionId,
@@ -1616,6 +1673,25 @@ console.log("🚀 urls.js is loading...");
         resultsContainer.innerHTML = `<div class="alert alert-danger">Failed to start crawling: ${e.message}</div>`;
         stopCrawling();
       }
+    });
+
+    window.addEventListener("beforeunload", () => {
+        try {
+            stopHeartbeat();
+
+            if (currentSessionId) {
+                // best effort stop
+                fetch(`${API_BASE_URL}/api/stop-crawl/`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+                    },
+                    body: JSON.stringify({ session_id: currentSessionId }),
+                    keepalive: true, // ✅ important for closing window
+                });
+            }
+        } catch (e) {}
     });
 
     console.log("✅ INIT: URLs module initialized successfully");

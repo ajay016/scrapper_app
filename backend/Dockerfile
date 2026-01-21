@@ -48,4 +48,4 @@ COPY . .
 EXPOSE 8000
 
 # We use xvfb-run to provide a virtual display for Playwright even in headless mode
-CMD ["xvfb-run", "-a", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

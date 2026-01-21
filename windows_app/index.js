@@ -1,8 +1,85 @@
 // index.js - PRODUCTION VERSION
-const { app, BrowserWindow, ipcMain, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, Menu, powerSaveBlocker } = require("electron");
 const path = require("path");
 
+
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+
 let win; // Global reference to main window
+let psbId = null;
+
+
+// ✅ HEARTBEAT TIMERS (per crawl session)
+const heartbeatTimers = new Map(); // sessionId -> intervalId
+const pollTimers = new Map();
+
+function startHeartbeat(sessionId, API_BASE_URL) {
+    stopHeartbeat(sessionId); // avoid duplicates
+
+    const intervalId = setInterval(async () => {
+        try {
+            await fetch(`${API_BASE_URL}/api/crawl-heartbeat/`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId }),
+            });
+        } catch (err) {
+            // silent failure is ok (network down etc)
+        }
+    }, 10000); // ✅ 10 seconds
+
+    heartbeatTimers.set(sessionId, intervalId);
+}
+
+function stopHeartbeat(sessionId) {
+    const intervalId = heartbeatTimers.get(sessionId);
+    if (intervalId) {
+        clearInterval(intervalId);
+        heartbeatTimers.delete(sessionId);
+    }
+}
+
+function startPolling(sessionId, API_BASE_URL, targetWebContentsId) {
+    stopPolling(sessionId); // prevent duplicates
+
+    const intervalId = setInterval(async () => {
+        try {
+            // ✅ fetch results from backend
+            const res = await fetch(
+                `${API_BASE_URL}/api/get-crawl-results/?session_id=${sessionId}&limit=200`
+            );
+
+            if (!res.ok) return;
+            const data = await res.json();
+
+            // ✅ send updates to renderer if window still exists
+            const wc = BrowserWindow.fromWebContents(
+                BrowserWindow.getAllWindows()
+                    .map(w => w.webContents)
+                    .find(wc => wc.id === targetWebContentsId)
+            )?.webContents;
+
+            if (wc && data?.results?.length) {
+                wc.send("crawl-updates", { sessionId, updates: data.results, stats: data.stats });
+            }
+
+        } catch (err) {
+            // ignore temporary errors
+        }
+    }, 500); // ✅ faster & stable even if minimized
+
+    pollTimers.set(sessionId, intervalId);
+}
+
+function stopPolling(sessionId) {
+    const intervalId = pollTimers.get(sessionId);
+    if (intervalId) {
+        clearInterval(intervalId);
+        pollTimers.delete(sessionId);
+    }
+}
 
 
 
@@ -26,8 +103,11 @@ function createWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
+            backgroundThrottling: false, // ✅ ADD THIS
         },
     });
+
+    win.webContents.setBackgroundThrottling(false);
 
     win.loadFile("index.html");
 
@@ -139,8 +219,11 @@ function createUrlsWindow() {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
+            backgroundThrottling: false, // ✅ IMPORTANT (no slowdown when minimized)
         },
     });
+
+    urlWindow.webContents.setBackgroundThrottling(false);
 
     urlWindow.loadFile("urls.html");
 
@@ -217,9 +300,12 @@ function createCrawlingWindow(crawlData) {
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
+            backgroundThrottling: false, // ✅ IMPORTANT
         },
         backgroundColor: '#1a1a1a'
     });
+
+    crawlingWindow.webContents.setBackgroundThrottling(false);
 
     crawlingWindow.loadFile("pages/urls.html");
 
@@ -324,8 +410,42 @@ if (!gotLock) {
         }
     });
 
+    // ✅ HEARTBEAT IPC (must be registered once)
+    ipcMain.on("heartbeat-start", (event, payload) => {
+        const { sessionId, apiBaseUrl } = payload || {};
+        if (!sessionId || !apiBaseUrl) return;
+        startHeartbeat(sessionId, apiBaseUrl);
+    });
+
+    ipcMain.on("heartbeat-stop", (event, payload) => {
+        const { sessionId } = payload || {};
+        if (!sessionId) return;
+        stopHeartbeat(sessionId);
+    });
+
+    ipcMain.on("poll-start", (event, payload) => {
+        const { sessionId, apiBaseUrl } = payload || {};
+        if (!sessionId || !apiBaseUrl) return;
+
+        // ✅ the renderer that requested polling
+        const targetWebContentsId = event.sender.id;
+
+        startPolling(sessionId, apiBaseUrl, targetWebContentsId);
+    });
+
+    ipcMain.on("poll-stop", (event, payload) => {
+        const { sessionId } = payload || {};
+        if (!sessionId) return;
+        stopPolling(sessionId);
+    });
+
     app.whenReady().then(() => {
         console.log("App is ready, creating main window...");
+
+        // ✅ START POWER SAVE BLOCKER HERE
+        psbId = powerSaveBlocker.start("prevent-app-suspension");
+        console.log("✅ PowerSaveBlocker ON:", psbId);
+
         app.setAsDefaultProtocolClient("scraper");
         createWindow();
     });
